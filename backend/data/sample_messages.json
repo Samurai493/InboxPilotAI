@@ -1,0 +1,354 @@
+[
+  {
+    "category": "recruiter",
+    "message": "Subject: Software Engineer Opportunity at TechCorp\n\nFrom: recruiter@techcorp.com\n\nHi,\n\nI came across your profile and was impressed by your experience. We have an opening for a Senior Software Engineer that I think would be a great fit. The role involves working with Python, FastAPI, and modern AI technologies.\n\nWould you be interested in learning more? I'd love to schedule a quick call this week.\n\nBest regards,\nSarah Johnson\nTechCorp Recruiting"
+  },
+  {
+    "category": "recruiter",
+    "message": "Subject: Networking Opportunity\n\nFrom: john.doe@startup.io\n\nHello,\n\nI saw your work on LangGraph and thought you might be interested in connecting. I'm building a similar product and would love to exchange ideas.\n\nAre you available for a coffee chat next week?\n\nThanks,\nJohn"
+  },
+  {
+    "category": "recruiter",
+    "message": "Subject: Re: Your Application\n\nFrom: hr@bigtech.com\n\nThank you for applying to our Software Engineer position. We'd like to invite you to the next round of interviews.\n\nPlease let us know your availability for the following dates:\n- Monday, Dec 18, 2-4 PM\n- Wednesday, Dec 20, 10 AM-12 PM\n- Friday, Dec 22, 1-3 PM\n\nLooking forward to hearing from you.\n\nHR Team"
+  },
+  {
+    "category": "scheduling",
+    "message": "Subject: Meeting Request\n\nFrom: colleague@company.com\n\nHi,\n\nCan we schedule a meeting to discuss the Q4 project? I'm free Tuesday afternoon or Wednesday morning.\n\nLet me know what works for you.\n\nThanks!"
+  },
+  {
+    "category": "scheduling",
+    "message": "Subject: Calendar Invite - Project Review\n\nFrom: manager@company.com\n\nHi Team,\n\nI'd like to schedule a project review meeting. Please respond with your availability for next week.\n\nBest,\nManager"
+  },
+  {
+    "category": "scheduling",
+    "message": "Subject: Reschedule Meeting\n\nFrom: client@clientco.com\n\nHi,\n\nI need to reschedule our meeting from Thursday to Friday. Same time (2 PM) if that works for you.\n\nSorry for the inconvenience.\n\nBest,\nClient"
+  },
+  {
+    "category": "scheduling",
+    "message": "Subject: Interview Scheduling\n\nFrom: interviews@company.com\n\nHello,\n\nWe'd like to schedule your technical interview. Please choose from:\n- Monday, 10 AM\n- Tuesday, 2 PM\n- Wednesday, 11 AM\n\nReply with your preference.\n\nThanks!"
+  },
+  {
+    "category": "academic",
+    "message": "Subject: Assignment Due Date Extension\n\nFrom: professor@university.edu\n\nDear Students,\n\nDue to the technical issues with the submission system, I'm extending the deadline for Assignment 3 to Friday, December 15th at 11:59 PM.\n\nPlease submit your work through the course portal.\n\nProf. Smith"
+  },
+  {
+    "category": "academic",
+    "message": "Subject: Office Hours This Week\n\nFrom: ta@university.edu\n\nHi,\n\nI'll be holding office hours this week on Wednesday from 2-4 PM. Feel free to drop by if you have questions about the midterm.\n\nSee you then!\nTA"
+  },
+  {
+    "category": "academic",
+    "message": "Subject: Grade Inquiry\n\nFrom: student@university.edu\n\nHi Professor,\n\nI have a question about my grade on the last assignment. Could we discuss this during your office hours?\n\nThanks,\nStudent"
+  },
+  {
+    "category": "academic",
+    "message": "Subject: Course Registration\n\nFrom: registrar@university.edu\n\nDear Student,\n\nYour course registration for Spring 2024 is now open. Please complete your registration by December 20th.\n\nRegistrar Office"
+  },
+  {
+    "category": "support",
+    "message": "Subject: Technical Issue with Login\n\nFrom: user@example.com\n\nHi Support,\n\nI'm having trouble logging into my account. I keep getting an error message. Can you help?\n\nThanks!"
+  },
+  {
+    "category": "support",
+    "message": "Subject: Feature Request\n\nFrom: customer@company.com\n\nHello,\n\nI'd love to see a dark mode option in the app. Is this something you're planning to add?\n\nThanks for the great product!\nCustomer"
+  },
+  {
+    "category": "support",
+    "message": "Subject: Bug Report\n\nFrom: developer@startup.com\n\nHi,\n\nI found a bug where the export function doesn't work on mobile devices. Steps to reproduce:\n1. Open app on mobile\n2. Click export\n3. Nothing happens\n\nCan you fix this?\n\nThanks!"
+  },
+  {
+    "category": "support",
+    "message": "Subject: Account Recovery\n\nFrom: user@email.com\n\nHi,\n\nI forgot my password and the reset link isn't working. Can you help me recover my account?\n\nThanks!"
+  },
+  {
+    "category": "billing",
+    "message": "Subject: Invoice #12345\n\nFrom: billing@service.com\n\nDear Customer,\n\nYour invoice for December 2023 is ready. Amount due: $99.00\n\nPlease pay by December 31st to avoid late fees.\n\nThank you!\nBilling Team"
+  },
+  {
+    "category": "billing",
+    "message": "Subject: Payment Received\n\nFrom: payments@company.com\n\nHi,\n\nWe've received your payment of $150.00. Thank you!\n\nYour subscription is active through January 2024.\n\nBest,\nPayments Team"
+  },
+  {
+    "category": "billing",
+    "message": "Subject: Subscription Renewal\n\nFrom: billing@saas.com\n\nHello,\n\nYour subscription is set to renew on January 1st. The charge will be $49.99.\n\nIf you'd like to cancel, please do so before December 28th.\n\nThanks!"
+  },
+  {
+    "category": "billing",
+    "message": "Subject: Refund Request\n\nFrom: customer@business.com\n\nHi,\n\nI'd like to request a refund for my recent purchase. Order #7890. The product didn't meet my expectations.\n\nThanks,\nCustomer"
+  },
+  {
+    "category": "personal",
+    "message": "Subject: Weekend Plans\n\nFrom: friend@email.com\n\nHey!\n\nWant to grab coffee this weekend? I'm free Saturday afternoon.\n\nLet me know!\nFriend"
+  },
+  {
+    "category": "personal",
+    "message": "Subject: Happy Holidays!\n\nFrom: family@email.com\n\nHi,\n\nJust wanted to wish you happy holidays! Hope you're doing well.\n\nLove,\nFamily"
+  },
+  {
+    "category": "personal",
+    "message": "Subject: Catching Up\n\nFrom: oldfriend@email.com\n\nHi there,\n\nLong time no talk! How have you been? Would love to catch up soon.\n\nTake care!"
+  },
+  {
+    "category": "spam",
+    "message": "Subject: URGENT: Claim Your Prize Now!\n\nFrom: winner@spam.com\n\nCongratulations! You've won $1,000,000! Click here to claim your prize immediately!\n\n[Link removed]"
+  },
+  {
+    "category": "spam",
+    "message": "Subject: Limited Time Offer - 90% Off!\n\nFrom: deals@spam.com\n\nDon't miss this amazing deal! Get 90% off on all products. Limited time only!\n\nShop now!"
+  },
+  {
+    "category": "spam",
+    "message": "Subject: Your Account Will Be Suspended\n\nFrom: security@fake-bank.com\n\nURGENT: Your account will be suspended unless you verify your information immediately.\n\nClick here: [Link removed]"
+  },
+  {
+    "category": "recruiter",
+    "message": "Subject: Opportunity at StartupXYZ\n\nFrom: hiring@startupxyz.com\n\nHi,\n\nWe're looking for a Full Stack Developer. Your background in React and Node.js caught our attention.\n\nInterested in a chat?\n\nBest,\nHiring Manager"
+  },
+  {
+    "category": "scheduling",
+    "message": "Subject: Team Standup - New Time\n\nFrom: team@company.com\n\nHi Team,\n\nStarting next week, our daily standup will move from 9 AM to 10 AM.\n\nSee you then!\nTeam Lead"
+  },
+  {
+    "category": "academic",
+    "message": "Subject: Final Exam Schedule\n\nFrom: department@university.edu\n\nDear Students,\n\nThe final exam schedule has been posted. Please check the course website for your exam times and locations.\n\nGood luck!\nDepartment"
+  },
+  {
+    "category": "support",
+    "message": "Subject: API Documentation Question\n\nFrom: developer@company.com\n\nHi,\n\nI'm trying to integrate your API but the documentation seems incomplete. Can you provide more details on the authentication flow?\n\nThanks!"
+  },
+  {
+    "category": "billing",
+    "message": "Subject: Payment Failed\n\nFrom: billing@service.com\n\nHi,\n\nYour recent payment failed. Please update your payment method to continue service.\n\nThanks!"
+  },
+  {
+    "category": "personal",
+    "message": "Subject: Birthday Party Invitation\n\nFrom: friend@email.com\n\nHey!\n\nYou're invited to my birthday party this Saturday at 7 PM. Hope you can make it!\n\nFriend"
+  },
+  {
+    "category": "spam",
+    "message": "Subject: Make Money Fast!\n\nFrom: getrich@spam.com\n\nEarn $5000 a week from home! No experience needed. Click here to start earning today!"
+  },
+  {
+    "category": "recruiter",
+    "message": "Subject: Follow-up on Application\n\nFrom: recruiter@tech.com\n\nHi,\n\nJust following up on your application. We're still reviewing candidates and will get back to you soon.\n\nThanks for your patience!\nRecruiter"
+  },
+  {
+    "category": "scheduling",
+    "message": "Subject: Cancel Meeting\n\nFrom: colleague@work.com\n\nHi,\n\nI need to cancel our meeting tomorrow. Can we reschedule for next week?\n\nSorry for the short notice.\n\nColleague"
+  },
+  {
+    "category": "academic",
+    "message": "Subject: Research Opportunity\n\nFrom: professor@university.edu\n\nDear Student,\n\nI'm looking for a research assistant for a project on machine learning. Are you interested?\n\nProf. Johnson"
+  },
+  {
+    "category": "support",
+    "message": "Subject: Feature Not Working\n\nFrom: user@service.com\n\nHi,\n\nThe search feature isn't returning any results. Is there an issue?\n\nThanks!"
+  },
+  {
+    "category": "billing",
+    "message": "Subject: Subscription Upgrade\n\nFrom: billing@saas.com\n\nHi,\n\nYou've been upgraded to our Pro plan. Your new monthly charge will be $99 starting next month.\n\nThanks!"
+  },
+  {
+    "category": "personal",
+    "message": "Subject: Thank You!\n\nFrom: friend@email.com\n\nHi,\n\nJust wanted to say thanks for your help last week. Really appreciate it!\n\nFriend"
+  },
+  {
+    "category": "spam",
+    "message": "Subject: You've Been Selected!\n\nFrom: lottery@spam.com\n\nCongratulations! You've been randomly selected to win a free iPhone! Claim now!"
+  },
+  {
+    "category": "recruiter",
+    "message": "Subject: Referral Opportunity\n\nFrom: recruiter@company.com\n\nHi,\n\nDo you know anyone who might be interested in a Data Scientist role? We're offering a referral bonus.\n\nThanks!"
+  },
+  {
+    "category": "scheduling",
+    "message": "Subject: Conference Call - Tomorrow\n\nFrom: team@company.com\n\nHi,\n\nReminder: We have a conference call tomorrow at 3 PM to discuss the project timeline.\n\nSee you there!\nTeam"
+  },
+  {
+    "category": "academic",
+    "message": "Subject: Scholarship Application\n\nFrom: financialaid@university.edu\n\nDear Student,\n\nYour scholarship application has been received. We'll notify you of the decision by January 15th.\n\nFinancial Aid Office"
+  },
+  {
+    "category": "support",
+    "message": "Subject: Data Export Issue\n\nFrom: user@service.com\n\nHi,\n\nI'm trying to export my data but the CSV file is corrupted. Can you help?\n\nThanks!"
+  },
+  {
+    "category": "billing",
+    "message": "Subject: Annual Plan Discount\n\nFrom: sales@company.com\n\nHi,\n\nSave 20% by switching to our annual plan! Lock in your current rate for a full year.\n\nInterested? Reply to this email.\n\nSales Team"
+  },
+  {
+    "category": "personal",
+    "message": "Subject: Weekend Hike\n\nFrom: friend@email.com\n\nHey,\n\nWant to go hiking this weekend? Weather looks great!\n\nLet me know!\nFriend"
+  },
+  {
+    "category": "spam",
+    "message": "Subject: Act Now - Limited Stock!\n\nFrom: sales@spam.com\n\nOnly 3 left in stock! Buy now before it's too late! 50% off today only!"
+  },
+  {
+    "category": "recruiter",
+    "message": "Subject: Interview Feedback\n\nFrom: hr@company.com\n\nHi,\n\nThank you for interviewing with us. We've decided to move forward with other candidates, but we'll keep your resume on file.\n\nBest of luck!\nHR"
+  },
+  {
+    "category": "scheduling",
+    "message": "Subject: All-Hands Meeting\n\nFrom: ceo@company.com\n\nHi Team,\n\nWe're having an all-hands meeting this Friday at 2 PM. Please mark your calendars.\n\nCEO"
+  },
+  {
+    "category": "academic",
+    "message": "Subject: Library Book Due\n\nFrom: library@university.edu\n\nDear Student,\n\nYour library book is due in 3 days. Please return or renew it.\n\nLibrary"
+  },
+  {
+    "category": "support",
+    "message": "Subject: Integration Help\n\nFrom: developer@startup.com\n\nHi,\n\nI'm integrating your service with our app. Can you provide example code for webhook handling?\n\nThanks!"
+  },
+  {
+    "category": "billing",
+    "message": "Subject: Payment Confirmation\n\nFrom: payments@service.com\n\nHi,\n\nYour payment of $29.99 has been processed. Receipt attached.\n\nThanks!"
+  },
+  {
+    "category": "personal",
+    "message": "Subject: Movie Night\n\nFrom: friend@email.com\n\nHey,\n\nWant to watch a movie this Friday? I'm thinking of seeing the new sci-fi film.\n\nFriend"
+  },
+  {
+    "category": "spam",
+    "message": "Subject: FREE GIFT INSIDE!\n\nFrom: promotions@spam.com\n\nOpen this email to claim your FREE gift! Limited time offer! Don't miss out!"
+  },
+  {
+    "category": "recruiter",
+    "message": "Subject: Contract Position\n\nFrom: recruiter@agency.com\n\nHi,\n\nWe have a 6-month contract position that might interest you. It's remote and pays $80/hour.\n\nInterested?\n\nRecruiter"
+  },
+  {
+    "category": "scheduling",
+    "message": "Subject: Training Session\n\nFrom: hr@company.com\n\nHi,\n\nMandatory training session scheduled for next Tuesday at 10 AM. Please attend.\n\nHR"
+  },
+  {
+    "category": "academic",
+    "message": "Subject: Thesis Defense\n\nFrom: advisor@university.edu\n\nHi,\n\nYour thesis defense is scheduled for January 20th at 2 PM. Please confirm your attendance.\n\nAdvisor"
+  },
+  {
+    "category": "support",
+    "message": "Subject: Performance Issue\n\nFrom: user@service.com\n\nHi,\n\nThe app is running very slowly. Is there a known issue?\n\nThanks!"
+  },
+  {
+    "category": "billing",
+    "message": "Subject: Overdue Invoice\n\nFrom: billing@company.com\n\nHi,\n\nYour invoice #4567 is overdue. Please pay $150.00 to avoid service interruption.\n\nThanks!"
+  },
+  {
+    "category": "personal",
+    "message": "Subject: Congratulations!\n\nFrom: friend@email.com\n\nHey!\n\nJust heard the great news! Congratulations on your new job!\n\nSo happy for you!\n\nFriend"
+  },
+  {
+    "category": "spam",
+    "message": "Subject: Your Package Has Arrived\n\nFrom: delivery@spam.com\n\nYour package has arrived! Click here to track: [Link removed]"
+  },
+  {
+    "category": "recruiter",
+    "message": "Subject: Job Fair Invitation\n\nFrom: career@university.edu\n\nHi,\n\nYou're invited to our annual job fair on January 15th. Many tech companies will be there!\n\nCareer Services"
+  },
+  {
+    "category": "scheduling",
+    "message": "Subject: Project Deadline\n\nFrom: manager@company.com\n\nHi Team,\n\nJust a reminder: The project deadline is next Friday. Let's make sure we're on track.\n\nManager"
+  },
+  {
+    "category": "academic",
+    "message": "Subject: Study Group\n\nFrom: classmate@university.edu\n\nHi,\n\nWant to join our study group for the final exam? We're meeting Wednesday at 6 PM.\n\nClassmate"
+  },
+  {
+    "category": "support",
+    "message": "Subject: Account Locked\n\nFrom: user@service.com\n\nHi,\n\nMy account got locked after too many login attempts. Can you help me unlock it?\n\nThanks!"
+  },
+  {
+    "category": "billing",
+    "message": "Subject: Plan Change Confirmation\n\nFrom: billing@saas.com\n\nHi,\n\nYou've successfully changed to our Basic plan. Your new monthly charge is $19.99.\n\nThanks!"
+  },
+  {
+    "category": "personal",
+    "message": "Subject: Dinner Invitation\n\nFrom: friend@email.com\n\nHey,\n\nWant to grab dinner this Thursday? I know a great new restaurant.\n\nFriend"
+  },
+  {
+    "category": "spam",
+    "message": "Subject: Exclusive Deal Just For You!\n\nFrom: deals@spam.com\n\nAs a valued customer, here's an exclusive 75% off deal just for you! Act now!"
+  },
+  {
+    "category": "recruiter",
+    "message": "Subject: Thank You Note\n\nFrom: recruiter@company.com\n\nHi,\n\nThank you for taking the time to interview with us. We really enjoyed speaking with you.\n\nWe'll be in touch soon!\n\nRecruiter"
+  },
+  {
+    "category": "scheduling",
+    "message": "Subject: Holiday Party\n\nFrom: hr@company.com\n\nHi Everyone,\n\nOur annual holiday party is this Friday at 6 PM. Hope to see you there!\n\nHR Team"
+  },
+  {
+    "category": "academic",
+    "message": "Subject: Research Paper Submission\n\nFrom: conference@academic.org\n\nDear Author,\n\nYour paper submission has been received. We'll notify you of the review results by February 1st.\n\nConference Committee"
+  },
+  {
+    "category": "support",
+    "message": "Subject: Two-Factor Authentication\n\nFrom: user@service.com\n\nHi,\n\nI'm trying to set up 2FA but the QR code isn't showing. Can you help?\n\nThanks!"
+  },
+  {
+    "category": "billing",
+    "message": "Subject: Credit Applied\n\nFrom: billing@service.com\n\nHi,\n\nWe've applied a $25 credit to your account. Thank you for your patience with the recent outage.\n\nBilling Team"
+  },
+  {
+    "category": "personal",
+    "message": "Subject: Game Night\n\nFrom: friend@email.com\n\nHey,\n\nGame night this Saturday at my place. Bring snacks!\n\nFriend"
+  },
+  {
+    "category": "spam",
+    "message": "Subject: You Have Unread Messages\n\nFrom: notifications@spam.com\n\nYou have 5 unread messages! Click here to read them now!"
+  },
+  {
+    "category": "recruiter",
+    "message": "Subject: Salary Discussion\n\nFrom: hr@company.com\n\nHi,\n\nWe'd like to discuss the salary for the position. Are you available for a call this week?\n\nHR"
+  },
+  {
+    "category": "scheduling",
+    "message": "Subject: Client Meeting\n\nFrom: sales@company.com\n\nHi,\n\nWe have a client meeting scheduled for next Monday at 2 PM. Please prepare the presentation.\n\nSales Team"
+  },
+  {
+    "category": "academic",
+    "message": "Subject: Tutoring Available\n\nFrom: tutor@university.edu\n\nHi,\n\nI'm offering tutoring sessions for CS 101. $30/hour. Interested?\n\nTutor"
+  },
+  {
+    "category": "support",
+    "message": "Subject: Mobile App Crash\n\nFrom: user@service.com\n\nHi,\n\nThe mobile app crashes every time I try to upload a photo. This started after the last update.\n\nCan you fix this?\n\nThanks!"
+  },
+  {
+    "category": "billing",
+    "message": "Subject: Pro-rated Refund\n\nFrom: billing@service.com\n\nHi,\n\nWe've processed your pro-rated refund of $45.00. It should appear in your account within 5-7 business days.\n\nThanks!"
+  },
+  {
+    "category": "personal",
+    "message": "Subject: Travel Plans\n\nFrom: friend@email.com\n\nHey,\n\nPlanning a trip to Europe next summer. Want to join?\n\nFriend"
+  },
+  {
+    "category": "spam",
+    "message": "Subject: Your Order Is Ready!\n\nFrom: shipping@spam.com\n\nYour order is ready to ship! Click here to track: [Link removed]"
+  },
+  {
+    "category": "recruiter",
+    "message": "Subject: Internship Program\n\nFrom: hr@company.com\n\nHi,\n\nWe're accepting applications for our summer internship program. Applications close January 31st.\n\nInterested?\n\nHR"
+  },
+  {
+    "category": "scheduling",
+    "message": "Subject: Team Building Event\n\nFrom: hr@company.com\n\nHi Team,\n\nWe're organizing a team building event next month. Please vote on your preferred date.\n\nHR"
+  },
+  {
+    "category": "academic",
+    "message": "Subject: Graduation Ceremony\n\nFrom: registrar@university.edu\n\nDear Graduate,\n\nYour graduation ceremony is scheduled for May 15th at 2 PM. Please confirm your attendance.\n\nRegistrar"
+  },
+  {
+    "category": "support",
+    "message": "Subject: API Rate Limit\n\nFrom: developer@startup.com\n\nHi,\n\nI'm hitting the API rate limit. Can we discuss increasing my quota?\n\nThanks!"
+  },
+  {
+    "category": "billing",
+    "message": "Subject: Annual Report\n\nFrom: billing@service.com\n\nHi,\n\nYour annual billing report is ready. Total charges for 2023: $1,200.00\n\nThanks for being a customer!\n\nBilling Team"
+  },
+  {
+    "category": "personal",
+    "message": "Subject: Housewarming Party\n\nFrom: friend@email.com\n\nHey,\n\nJust moved into my new place! Having a housewarming party this Saturday. Hope you can make it!\n\nFriend"
+  },
+  {
+    "category": "spam",
+    "message": "Subject: Last Chance - 90% Off!\n\nFrom: sales@spam.com\n\nThis is your last chance! Get 90% off everything! Sale ends tonight!"
+  }
+]

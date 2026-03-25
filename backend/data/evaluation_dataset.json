@@ -1,0 +1,79 @@
+[
+  {
+    "input": {
+      "message": "Subject: Software Engineer Opportunity\n\nFrom: recruiter@techcorp.com\n\nHi,\n\nI came across your profile and was impressed. We have an opening for a Senior Software Engineer. Would you be interested in learning more?\n\nBest regards,\nSarah"
+    },
+    "expected": {
+      "intent": "recruiter",
+      "tasks": [
+        {
+          "description": "Respond to recruiter about job opportunity",
+          "priority": "high"
+        }
+      ],
+      "reply_quality": "professional, shows interest, asks for next steps"
+    }
+  },
+  {
+    "input": {
+      "message": "Subject: Meeting Request\n\nFrom: colleague@company.com\n\nHi,\n\nCan we schedule a meeting to discuss the Q4 project? I'm free Tuesday afternoon or Wednesday morning.\n\nThanks!"
+    },
+    "expected": {
+      "intent": "scheduling",
+      "tasks": [
+        {
+          "description": "Schedule meeting for Q4 project discussion",
+          "priority": "medium"
+        }
+      ],
+      "reply_quality": "clear availability, suggests specific times"
+    }
+  },
+  {
+    "input": {
+      "message": "Subject: Assignment Due Date Extension\n\nFrom: professor@university.edu\n\nDear Students,\n\nDue to technical issues, I'm extending the deadline for Assignment 3 to Friday, December 15th at 11:59 PM.\n\nProf. Smith"
+    },
+    "expected": {
+      "intent": "academic",
+      "tasks": [
+        {
+          "description": "Submit Assignment 3 by December 15th",
+          "due_date": "2023-12-15",
+          "priority": "high"
+        }
+      ],
+      "reply_quality": "acknowledges extension, professional"
+    }
+  },
+  {
+    "input": {
+      "message": "Subject: Technical Issue\n\nFrom: user@example.com\n\nHi Support,\n\nI'm having trouble logging into my account. I keep getting an error message. Can you help?\n\nThanks!"
+    },
+    "expected": {
+      "intent": "support",
+      "tasks": [
+        {
+          "description": "Troubleshoot login issue",
+          "priority": "high"
+        }
+      ],
+      "reply_quality": "empathetic, asks clarifying questions, provides help"
+    }
+  },
+  {
+    "input": {
+      "message": "Subject: Invoice #12345\n\nFrom: billing@service.com\n\nDear Customer,\n\nYour invoice for December 2023 is ready. Amount due: $99.00\n\nPlease pay by December 31st.\n\nThank you!\nBilling Team"
+    },
+    "expected": {
+      "intent": "billing",
+      "tasks": [
+        {
+          "description": "Pay invoice #12345 by December 31st",
+          "due_date": "2023-12-31",
+          "priority": "high"
+        }
+      ],
+      "reply_quality": "professional, acknowledges payment, clear"
+    }
+  }
+]
