@@ -31,15 +31,21 @@ cd backend
 pip install -r requirements.txt
 ```
 
-2. Set up environment variables:
+2. Set up environment variables (`backend/.env`):
 ```bash
-cp .env.example .env
-# Edit .env with your API keys
+# Windows (PowerShell)
+./setup-env.ps1
+
+# Linux/WSL
+make setup-env
+# Create backend/.env manually (at minimum set OPENAI_API_KEY and SECRET_KEY)
 ```
 
-3. Initialize database:
+3. Initialize database (dev behavior):
 ```bash
-alembic upgrade head
+# Tables are created automatically on backend startup (dev-friendly).
+# If you are using migrations, you can also run:
+# alembic upgrade head
 ```
 
 4. Run the server:

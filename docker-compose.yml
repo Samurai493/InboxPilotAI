@@ -17,5 +17,20 @@ services:
     ports:
       - "6379:6379"
 
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    depends_on:
+      - postgres
+      - redis
+    # Override connection strings for the docker network.
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/inboxpilot
+      REDIS_URL: redis://redis:6379/0
+
 volumes:
   postgres_data:
