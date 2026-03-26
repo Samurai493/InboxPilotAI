@@ -17,7 +17,6 @@ setup-env:
 
 	read -r -s -p "OPENAI_API_KEY: " OPENAI_API_KEY; echo
 	read -r -s -p "LANGSMITH_API_KEY (optional): " LANGSMITH_API_KEY; echo
-	read -r -s -p "SECRET_KEY: " SECRET_KEY; echo
 
 	LANGSMITH_TRACING=false
 	if [ -n "$$LANGSMITH_API_KEY" ]; then
@@ -30,7 +29,6 @@ setup-env:
 		"LANGSMITH_API_KEY=$$LANGSMITH_API_KEY" \
 		"LANGSMITH_PROJECT=inboxpilot-ai" \
 		"LANGSMITH_TRACING=$$LANGSMITH_TRACING" \
-		"SECRET_KEY=$$SECRET_KEY" \
 		"ALGORITHM=HS256" \
 		"ACCESS_TOKEN_EXPIRE_MINUTES=30" \
 		"DATABASE_URL=postgresql://postgres:postgres@localhost:5432/inboxpilot" \

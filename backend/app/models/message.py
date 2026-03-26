@@ -20,7 +20,7 @@ class Message(Base, TimestampMixin):
     subject = Column(String(500), nullable=True)
     intent = Column(String(50), nullable=True)  # recruiter, scheduling, academic, support, billing, personal, spam
     urgency_score = Column(String(10), nullable=True)  # low, medium, high
-    metadata = Column(JSON, nullable=True)  # Additional metadata
+    extra_metadata = Column("metadata", JSON, nullable=True)
     
     # Relationships
     thread = relationship("Thread", back_populates="messages")

@@ -41,15 +41,12 @@ if ([string]::IsNullOrEmpty($langsmithApiKey)) {
   $langsmithApiKeyValue = $langsmithApiKey
 }
 
-$secretKey = Read-Secret -Prompt "SECRET_KEY (required)"
-
 $content = @"
 OPENAI_API_KEY=$openaiApiKey
 OPENAI_MODEL=gpt-4o-mini
 LANGSMITH_API_KEY=$langsmithApiKeyValue
 LANGSMITH_PROJECT=inboxpilot-ai
 LANGSMITH_TRACING=$langsmithTracing
-SECRET_KEY=$secretKey
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/inboxpilot

@@ -42,7 +42,7 @@ pip install -r requirements.txt
 
 # Linux/WSL
 make setup-env
-# Create backend/.env manually (at minimum set OPENAI_API_KEY and SECRET_KEY)
+# Create backend/.env manually (at minimum set OPENAI_API_KEY)
 ```
 
 3. Initialize database (dev behavior):
@@ -102,7 +102,3 @@ InboxPilotAI/
 - ✅ Milestone 5: Observability + Evaluation
 - 🔄 Milestone 6: Real Integrations + Beta Launch (in progress)
 - ⏳ Milestone 7: Growth-Ready Productization
-
-## License
-
-MIT

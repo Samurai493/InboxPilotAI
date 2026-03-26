@@ -2,7 +2,8 @@
 from typing import Literal
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
-from langgraph.graph import StateGraph, START, END
+from langgraph.graph import StateGraph
+from langgraph.graph.graph import START, END
 
 from app.graphs.state import InboxPilotState
 from app.graphs.checkpoint import get_checkpointer
@@ -445,7 +446,7 @@ def create_graph():
     builder.add_node("billing_extract", billing_extract_tasks)
     
     # General nodes (fallback)
-    builder.add_node("draft_reply", draft_reply)
+    builder.add_node("generate_draft", draft_reply)
     builder.add_node("extract_tasks", extract_tasks)
     
     # Quality and review nodes
@@ -471,7 +472,7 @@ def create_graph():
             "support": "support_draft",
             "billing": "billing_draft"
         }
-        return specialist_map.get(intent, "draft_reply")
+        return specialist_map.get(intent, "generate_draft")
     
     builder.add_conditional_edges(
         "route_to_specialist",
@@ -482,7 +483,7 @@ def create_graph():
             "academic_draft": "academic_draft",
             "support_draft": "support_draft",
             "billing_draft": "billing_draft",
-            "draft_reply": "draft_reply"
+            "generate_draft": "generate_draft"
         }
     )
     
@@ -499,7 +500,7 @@ def create_graph():
     builder.add_edge("billing_extract", "score_confidence")
     
     # General draft -> extract -> score_confidence
-    builder.add_edge("draft_reply", "extract_tasks")
+    builder.add_edge("generate_draft", "extract_tasks")
     builder.add_edge("extract_tasks", "score_confidence")
     
     # Continue with quality and review
