@@ -22,9 +22,13 @@ A LangGraph-powered inbox copilot that transforms messy inbound emails and messa
 - **Observability**: LangSmith for tracing and evaluation
 
 ## Setup
+set up python virtual environment
+```bash 
+python3 -m venv .venv
+source .venv/bin/activate
 
+```
 ### Backend
-
 1. Install dependencies:
 ```bash
 cd backend
