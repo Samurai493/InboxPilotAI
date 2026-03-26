@@ -35,7 +35,7 @@ cd backend
 pip install -r requirements.txt
 ```
 
-2. Set up environment variables (`backend/.env`):
+2. Set up environment variables in repo root (`backend/.env`):
 ```bash
 # Windows (PowerShell)
 ./setup-env.ps1
@@ -54,6 +54,7 @@ make setup-env
 
 4. Run the server:
 ```bash
+cd backend
 uvicorn app.main:app --reload
 ```
 
