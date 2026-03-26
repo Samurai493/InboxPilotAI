@@ -1,7 +1,11 @@
 """FastAPI application entry point."""
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 from app.database import init_db
 
 # Initialize FastAPI app
@@ -24,8 +28,14 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database on startup."""
-    init_db()
+    """Initialize database on startup (non-fatal so Cloud Run can bind PORT if DB is misconfigured)."""
+    try:
+        init_db()
+    except Exception:
+        logger.exception(
+            "Database init failed (check DATABASE_URL / Cloud SQL). "
+            "Service is up; DB-backed routes will error until the database is reachable."
+        )
 
 
 @app.get("/")
