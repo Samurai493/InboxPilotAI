@@ -15,8 +15,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Expose port
-EXPOSE 8000
+# Cloud Run sets PORT (default 8080). Local/docker-compose leaves it unset → 8000.
+EXPOSE 8080
 
-# Run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Shell form so ${PORT:-8000} is expanded
+CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
