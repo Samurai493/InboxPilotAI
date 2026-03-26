@@ -58,7 +58,7 @@ cd backend
 uvicorn app.main:app --reload
 ```
 
-### Frontend
+### Frontendimage.png
 
 1. Install dependencies:
 ```bash

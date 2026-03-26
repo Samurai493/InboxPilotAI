@@ -1,6 +1,6 @@
 """Message processing endpoints."""
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.services.graph_service import GraphService
 
 router = APIRouter()
@@ -8,8 +8,9 @@ router = APIRouter()
 
 class ProcessMessageRequest(BaseModel):
     """Request model for message processing."""
+
     message: str
-    user_id: str = "demo-user"  # Default for MVP
+    user_id: str = Field(..., description="users.id (UUID string)")
 
 
 class ProcessMessageResponse(BaseModel):

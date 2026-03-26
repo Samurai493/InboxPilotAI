@@ -6,6 +6,17 @@ from .draft import Draft
 from .task import Task
 from .user_preference import UserPreference
 from .review import Review
+from .gmail_credential import GmailCredential
 from .base import Base
 
-__all__ = ["Base", "User", "Thread", "Message", "Draft", "Task", "UserPreference", "Review"]
+__all__ = [
+    "Base",
+    "User",
+    "Thread",
+    "Message",
+    "Draft",
+    "Task",
+    "UserPreference",
+    "Review",
+    "GmailCredential",
+]

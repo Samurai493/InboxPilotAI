@@ -3,9 +3,6 @@ from typing import List, Dict, Any, Optional
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from app.config import settings
-
-
 class GmailService:
     """Service for Gmail API operations."""
     
@@ -82,7 +79,46 @@ class GmailService:
             }
         except HttpError as error:
             raise Exception(f"An error occurred: {error}")
-    
+
+    def list_message_summaries(self, max_results: int = 10) -> List[Dict[str, Any]]:
+        """List inbox messages with subject, from, date, snippet (no body text)."""
+        if not self.service:
+            raise ValueError("Gmail service not initialized. Credentials required.")
+        try:
+            results = self.service.users().messages().list(
+                userId="me",
+                maxResults=max_results,
+            ).execute()
+            messages = results.get("messages", [])
+            out: List[Dict[str, Any]] = []
+            for m in messages:
+                meta = (
+                    self.service.users()
+                    .messages()
+                    .get(
+                        userId="me",
+                        id=m["id"],
+                        format="metadata",
+                        metadataHeaders=["Subject", "From", "Date"],
+                    )
+                    .execute()
+                )
+                headers_list = meta.get("payload", {}).get("headers", [])
+                headers = {h["name"]: h["value"] for h in headers_list}
+                out.append(
+                    {
+                        "id": m["id"],
+                        "subject": headers.get("Subject", ""),
+                        "from_email": headers.get("From", ""),
+                        "date": headers.get("Date", ""),
+                        "body": "",
+                        "snippet": meta.get("snippet", ""),
+                    }
+                )
+            return out
+        except HttpError as error:
+            raise Exception(f"An error occurred: {error}")
+
     def _extract_body(self, payload: Dict[str, Any]) -> str:
         """Extract message body from payload."""
         body = ""

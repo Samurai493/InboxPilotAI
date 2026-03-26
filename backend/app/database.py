@@ -20,6 +20,8 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():
     """Initialize database tables."""
+    import app.models  # noqa: F401 — register models on Base.metadata
+
     Base.metadata.create_all(bind=engine)
 
 

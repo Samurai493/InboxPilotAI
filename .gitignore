@@ -1,0 +1,13 @@
+# Virtual environments at repo root (backend/.gitignore only applies under backend/)
+.venv/
+venv/
+env/
+ENV/
+
+# Local env
+.env
+.env.local
+
+# OS / editor
+.DS_Store
+Thumbs.db
