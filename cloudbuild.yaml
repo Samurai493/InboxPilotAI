@@ -1,5 +1,4 @@
-# Cloud Build expects a Dockerfile at the workspace root by default.
-# This repo keeps the API Dockerfile in backend/ — run docker from there.
+# Build API image from repo root (see root Dockerfile).
 steps:
   - name: gcr.io/cloud-builders/docker
     args:
@@ -7,7 +6,6 @@ steps:
       - '-t'
       - 'gcr.io/$PROJECT_ID/inboxpilot-backend:$BUILD_ID'
       - .
-    dir: backend
 
 images:
   - 'gcr.io/$PROJECT_ID/inboxpilot-backend:$BUILD_ID'
