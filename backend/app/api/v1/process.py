@@ -1,7 +1,10 @@
 """Message processing endpoints."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+from app.models.user import User
 from app.services.graph_service import GraphService
+from app.services.auth_service import get_current_user_optional, resolve_user_id_or_current
 
 router = APIRouter()
 
@@ -10,7 +13,7 @@ class ProcessMessageRequest(BaseModel):
     """Request model for message processing."""
 
     message: str
-    user_id: str = Field(..., description="users.id (UUID string)")
+    user_id: str | None = Field(default=None, description="users.id (UUID string)")
 
 
 class ProcessMessageResponse(BaseModel):
@@ -22,7 +25,10 @@ class ProcessMessageResponse(BaseModel):
 
 
 @router.post("/process", response_model=ProcessMessageResponse)
-async def process_message(request: ProcessMessageRequest):
+async def process_message(
+    request: ProcessMessageRequest,
+    current_user: User | None = Depends(get_current_user_optional),
+):
     """
     Process a message through the workflow.
     
@@ -33,8 +39,9 @@ async def process_message(request: ProcessMessageRequest):
         Thread ID and processing status
     """
     try:
+        user_id = resolve_user_id_or_current(request.user_id, current_user)
         result = GraphService.process_message(
-            user_id=request.user_id,
+            user_id=user_id,
             raw_message=request.message
         )
         

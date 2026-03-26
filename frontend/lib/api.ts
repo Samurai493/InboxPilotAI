@@ -3,20 +3,24 @@
  */
 
 import { getStoredUserId } from '@/lib/user-session'
+import { getGoogleIdToken } from '@/lib/auth-session'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 export { API_BASE_URL }
 
+function authHeaders(extra?: Record<string, string>): Record<string, string> {
+  const token = getGoogleIdToken()
+  return {
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(extra ?? {}),
+  }
+}
+
 /** Must match a row in users.id (UUID). From localStorage (home bootstrap), env, or explicit arg. */
-function resolveUserId(explicit?: string): string {
+function resolveUserId(explicit?: string): string | undefined {
   const id =
     explicit ?? getStoredUserId() ?? process.env.NEXT_PUBLIC_DEFAULT_USER_ID
-  if (!id) {
-    throw new Error(
-      'Open the home page once to create your session, or set NEXT_PUBLIC_DEFAULT_USER_ID (users.id UUID)',
-    )
-  }
   return id
 }
 
@@ -25,6 +29,16 @@ export interface ProcessMessageResponse {
   status: string
   state?: any
   error?: string
+}
+
+export interface AuthUserResponse {
+  user_id: string
+  email: string
+  name?: string | null
+}
+
+export interface PublicAuthConfigResponse {
+  google_client_id?: string | null
 }
 
 export interface ThreadStateResponse {
@@ -41,14 +55,16 @@ export async function processMessage(
   message: string,
   userId?: string,
 ): Promise<ProcessMessageResponse> {
+  const resolvedUserId = resolveUserId(userId)
   const response = await fetch(`${API_BASE_URL}/api/v1/process`, {
     method: 'POST',
     headers: {
+      ...authHeaders(),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
       message,
-      user_id: resolveUserId(userId),
+      ...(resolvedUserId ? { user_id: resolvedUserId } : {}),
     }),
   })
 
@@ -66,9 +82,9 @@ export async function processMessage(
 export async function getThreadState(threadId: string): Promise<ThreadStateResponse> {
   const response = await fetch(`${API_BASE_URL}/api/v1/threads/${threadId}`, {
     method: 'GET',
-    headers: {
+    headers: authHeaders({
       'Content-Type': 'application/json',
-    },
+    }),
   })
 
   if (!response.ok) {
@@ -88,10 +104,19 @@ export interface GmailAuthorizeResponse {
   authorization_url: string
 }
 
+export interface GmailMessageResponse {
+  id: string
+  subject: string
+  from_email: string
+  date: string
+  body: string
+  snippet: string
+}
+
 export async function getGmailStatus(userId: string): Promise<GmailStatusResponse> {
   const response = await fetch(
     `${API_BASE_URL}/api/v1/gmail/status/${encodeURIComponent(userId)}`,
-    { method: 'GET', headers: { Accept: 'application/json' } },
+    { method: 'GET', headers: authHeaders({ Accept: 'application/json' }) },
   )
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
@@ -109,6 +134,128 @@ export async function getGmailAuthorizationUrl(
   const url = new URL(`${API_BASE_URL}/api/v1/gmail/oauth/authorize`)
   url.searchParams.set('user_id', userId)
   const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: authHeaders({ Accept: 'application/json' }),
+  })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+    throw new Error(
+      (typeof error.detail === 'string' ? error.detail : error.detail?.[0]?.msg) ||
+        `HTTP error! status: ${response.status}`,
+    )
+  }
+  return response.json()
+}
+
+export async function listGmailMessages(
+  userId?: string,
+  maxResults: number = 100,
+): Promise<GmailMessageResponse[]> {
+  const url = new URL(`${API_BASE_URL}/api/v1/gmail/messages`)
+  url.searchParams.set('max_results', String(maxResults))
+  if (userId) url.searchParams.set('user_id', userId)
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: authHeaders({ Accept: 'application/json' }),
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+    throw new Error(
+      (typeof error.detail === 'string' ? error.detail : error.detail?.[0]?.msg) ||
+        `HTTP error! status: ${response.status}`,
+    )
+  }
+  return response.json()
+}
+
+export async function getGmailMessage(
+  messageId: string,
+  userId?: string,
+): Promise<GmailMessageResponse> {
+  const url = new URL(
+    `${API_BASE_URL}/api/v1/gmail/messages/${encodeURIComponent(messageId)}`,
+  )
+  if (userId) url.searchParams.set('user_id', userId)
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: authHeaders({ Accept: 'application/json' }),
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+    throw new Error(
+      (typeof error.detail === 'string' ? error.detail : error.detail?.[0]?.msg) ||
+        `HTTP error! status: ${response.status}`,
+    )
+  }
+  return response.json()
+}
+
+export async function createGmailDraft(
+  payload: { to: string; subject: string; body: string },
+  userId?: string,
+): Promise<unknown> {
+  const url = new URL(`${API_BASE_URL}/api/v1/gmail/drafts`)
+  if (userId) url.searchParams.set('user_id', userId)
+  const response = await fetch(url.toString(), {
+    method: 'POST',
+    headers: {
+      ...authHeaders({ Accept: 'application/json' }),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+    throw new Error(
+      (typeof error.detail === 'string' ? error.detail : error.detail?.[0]?.msg) ||
+        `HTTP error! status: ${response.status}`,
+    )
+  }
+  return response.json()
+}
+
+export async function authenticateWithGoogleIdToken(
+  idToken: string,
+): Promise<AuthUserResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/auth/google`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ id_token: idToken }),
+  })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+    throw new Error(
+      (typeof error.detail === 'string' ? error.detail : error.detail?.[0]?.msg) ||
+        `HTTP error! status: ${response.status}`,
+    )
+  }
+  return response.json()
+}
+
+export async function getAuthenticatedUser(): Promise<AuthUserResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/auth/me`, {
+    method: 'GET',
+    headers: authHeaders({ Accept: 'application/json' }),
+  })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+    throw new Error(
+      (typeof error.detail === 'string' ? error.detail : error.detail?.[0]?.msg) ||
+        `HTTP error! status: ${response.status}`,
+    )
+  }
+  return response.json()
+}
+
+export async function getPublicAuthConfig(): Promise<PublicAuthConfigResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/auth/config`, {
     method: 'GET',
     headers: { Accept: 'application/json' },
   })

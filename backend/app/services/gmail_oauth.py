@@ -21,6 +21,11 @@ from app.models.gmail_credential import GmailCredential
 from app.models.user import User
 
 GMAIL_SCOPES: List[str] = [
+    # Identity scopes often come back in the token response (especially when users have
+    # previously authorized the app); include them to avoid "Scope has changed" errors.
+    "openid",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.compose",
 ]

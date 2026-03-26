@@ -1,9 +1,12 @@
 """Gmail integration: per-user OAuth (users.id UUID) and API calls."""
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.config import settings
+from app.models.gmail_credential import GmailCredential
 from app.services.gmail_oauth import (
     complete_oauth,
     create_authorization_url,
@@ -13,7 +16,7 @@ from app.services.gmail_oauth import (
 )
 from app.services.gmail_service import GmailService
 from app.models.user import User
-from app.models.gmail_credential import GmailCredential
+from app.services.auth_service import get_current_user_optional, resolve_user_id_or_current
 
 router = APIRouter()
 
@@ -69,9 +72,13 @@ def _credentials_or_404(db: Session, user_id: str):
 
 
 @router.get("/gmail/oauth/authorize", response_model=GmailAuthorizeResponse)
-async def gmail_oauth_authorize(user_id: str, db: Session = Depends(get_db)):
+async def gmail_oauth_authorize(
+    user_id: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
+):
     """Start OAuth: returns Google authorization URL. user_id must be users.id (UUID)."""
-    uid = _user_uuid_param(user_id)
+    uid = _user_uuid_param(resolve_user_id_or_current(user_id, current_user))
     user = db.query(User).filter(User.id == uid).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -82,7 +89,7 @@ async def gmail_oauth_authorize(user_id: str, db: Session = Depends(get_db)):
     return GmailAuthorizeResponse(authorization_url=url)
 
 
-@router.get("/gmail/oauth/callback", response_model=GmailCallbackResponse)
+@router.get("/gmail/oauth/callback")
 async def gmail_oauth_callback(request: Request, db: Session = Depends(get_db)):
     """OAuth redirect target: exchanges code and stores tokens for the user UUID in state."""
     url = str(request.url)
@@ -92,11 +99,13 @@ async def gmail_oauth_callback(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
-    return GmailCallbackResponse(
-        status="connected",
-        user_id=str(row.user_id),
-        google_account_email=row.google_account_email,
-    )
+    except Exception as e:
+        # Catch-all to avoid opaque 500s during OAuth handshakes.
+        raise HTTPException(status_code=500, detail=f"OAuth callback failed: {e}")
+    # Google hits this URL in the browser as part of the OAuth redirect flow.
+    # Redirect back to the frontend so it can call /gmail/status/{user_id} and load messages.
+    frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3002")
+    return RedirectResponse(url=f"{frontend_url}/?gmail_connected=1")
 
 
 @router.get("/gmail/status/{user_id}", response_model=GmailStatusResponse)
@@ -104,6 +113,19 @@ async def gmail_status(user_id: str, db: Session = Depends(get_db)):
     """Whether Gmail OAuth is stored for this user."""
     uid = _user_uuid_param(user_id)
 
+    row = db.query(GmailCredential).filter(GmailCredential.user_id == uid).first()
+    if not row:
+        return GmailStatusResponse(connected=False)
+    return GmailStatusResponse(connected=True, google_account_email=row.google_account_email)
+
+
+@router.get("/gmail/status/me", response_model=GmailStatusResponse)
+async def gmail_status_me(
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
+):
+    """Whether Gmail OAuth is stored for the authenticated user."""
+    uid = _user_uuid_param(resolve_user_id_or_current(None, current_user))
     row = db.query(GmailCredential).filter(GmailCredential.user_id == uid).first()
     if not row:
         return GmailStatusResponse(connected=False)
@@ -121,11 +143,13 @@ async def gmail_disconnect(user_id: str, db: Session = Depends(get_db)):
 
 @router.get("/gmail/messages", response_model=list[GmailMessageResponse])
 async def list_gmail_messages(
-    user_id: str,
+    user_id: str | None = None,
     max_results: int = 10,
     db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
 ):
     """List inbox messages for the connected Gmail account."""
+    user_id = resolve_user_id_or_current(user_id, current_user)
     creds = _credentials_or_404(db, user_id)
     try:
         svc = GmailService(credentials=creds)
@@ -136,8 +160,14 @@ async def list_gmail_messages(
 
 
 @router.get("/gmail/messages/{message_id}", response_model=GmailMessageResponse)
-async def get_gmail_message(message_id: str, user_id: str, db: Session = Depends(get_db)):
+async def get_gmail_message(
+    message_id: str,
+    user_id: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
+):
     """Get one message by Gmail id."""
+    user_id = resolve_user_id_or_current(user_id, current_user)
     creds = _credentials_or_404(db, user_id)
     try:
         svc = GmailService(credentials=creds)
@@ -156,11 +186,13 @@ async def get_gmail_message(message_id: str, user_id: str, db: Session = Depends
 
 @router.post("/gmail/drafts")
 async def create_gmail_draft(
-    user_id: str,
     payload: GmailDraftRequest,
+    user_id: str | None = None,
     db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
 ):
     """Create a Gmail draft for the connected account."""
+    user_id = resolve_user_id_or_current(user_id, current_user)
     creds = _credentials_or_404(db, user_id)
     try:
         svc = GmailService(credentials=creds)

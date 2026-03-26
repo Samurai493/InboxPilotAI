@@ -1,21 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { API_BASE_URL, processMessage } from '@/lib/api'
-import { ensureUserId } from '@/lib/user-session'
+import { processMessage } from '@/lib/api'
 
 export default function InboxPage() {
   const [message, setMessage] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
-
-  useEffect(() => {
-    ensureUserId(API_BASE_URL).catch(() => {
-      /* processMessage will surface a clear error if still missing */
-    })
-  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

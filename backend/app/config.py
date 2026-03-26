@@ -35,9 +35,16 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
     GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/gmail/oauth/callback"
+
+    # After the user completes Gmail OAuth in the browser, the backend callback endpoint
+    # should redirect the browser back to the frontend so the UI can refresh state.
+    #
+    # Local dev: Next.js usually runs on http://localhost:3002
+    FRONTEND_URL: str = "http://localhost:3002"
     
     # CORS
-    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:3001"]
+    # Dev: Next.js often increments ports (3000, 3001, 3002, ...). Add the expected ports here.
+    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:3001", "http://localhost:3002"]
     
     # Application Settings
     CONFIDENCE_THRESHOLD: float = 0.7

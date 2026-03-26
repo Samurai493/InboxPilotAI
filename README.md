@@ -22,7 +22,7 @@ A LangGraph-powered inbox copilot that transforms messy inbound emails and messa
 - **Observability**: LangSmith for tracing and evaluation
 
 ## Setup
-set up python virtual environment
+Set up python virtual environment
 ```bash 
 python3 -m venv .venv
 source .venv/bin/activate
@@ -70,6 +70,7 @@ npm install
 ```bash
 # Create .env.local
 NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-google-oauth-client-id.apps.googleusercontent.com
 ```
 
 3. Run the development server:
@@ -83,6 +84,39 @@ npm run dev
 2. Paste an email or message
 3. View the classified result, draft reply, and extracted tasks
 4. Review pending items in the review queue if needed
+
+## Deploy (Cloud Run + Cloud SQL)
+
+This project uses PostgreSQL via `DATABASE_URL` (see `backend/app/config.py`). For Cloud Run, **do not** use `localhost`.
+
+### Cloud SQL instance
+
+- **Instance connection name example**: `inboxpilotai-491403:us-central1:inbox-pilot-ai`
+- Create a Postgres database (example: `inboxpilot`) and a user/password.
+
+### Cloud Run configuration
+
+In your Cloud Run service:
+
+- **Connections**: attach the Cloud SQL instance (same instance connection name as above).
+- **IAM**: grant the Cloud Run runtime service account `roles/cloudsql.client`.
+- **Variables & Secrets**: set `DATABASE_URL` using the Unix-socket format:
+
+```text
+DATABASE_URL=postgresql://DB_USER:DB_PASSWORD@/DB_NAME?host=/cloudsql/inboxpilotai-491403:us-central1:inbox-pilot-ai
+```
+
+Also set:
+
+- `SECRET_KEY` (used to sign Gmail OAuth state)
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_REDIRECT_URI` to your deployed callback, e.g. `https://YOUR_SERVICE_URL/api/v1/gmail/oauth/callback`
+
+### Verify the deployment
+
+- `GET /health` should return `{"status":"healthy"}`
+- `POST /api/v1/users/bootstrap` should return a user UUID (requires DB connectivity)
+- `GET /api/v1/gmail/oauth/authorize?user_id=<uuid>` should return a Google `authorization_url`
 
 ## Project Structure
 
