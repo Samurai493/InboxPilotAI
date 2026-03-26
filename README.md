@@ -22,72 +22,129 @@ A LangGraph-powered inbox copilot that transforms messy inbound emails and messa
 - **Observability**: LangSmith for tracing and evaluation
 
 ## Setup
-Set up python virtual environment
-```bash 
-python3 -m venv .venv
-source .venv/bin/activate
 
+### Prerequisites
+
+- **Python 3.11+** (matches the backend Docker image)
+- **Node.js 18+** (frontend)
+- **Docker** (recommended): Postgres and Redis for local development
+
+### 1. Python virtual environment
+
+From the repository root:
+
+```bash
+python3 -m venv .venv
 ```
-### Backend
-1. Install dependencies:
+
+Activate it:
+
+- **Linux / macOS**: `source .venv/bin/activate`
+- **Windows (PowerShell)**: `.venv\Scripts\Activate.ps1`
+
+### 2. Start Postgres and Redis (local)
+
+From the repository root:
+
+```bash
+docker compose up -d
+```
+
+This starts:
+
+- Postgres on `localhost:5432` (user/password/db: `postgres` / `postgres` / `inboxpilot` per `docker-compose.yml`)
+- Redis on `localhost:6379`
+
+Stop with `docker compose down` when finished.
+
+### 3. Backend server
+
 ```bash
 cd backend
 pip install -r requirements.txt
 ```
 
-2. Set up environment variables in repo root (`backend/.env`):
-```bash
-# Windows (PowerShell)
-./setup-env.ps1
+#### Environment file: `backend/.env`
 
-# Linux/WSL
-make setup-env
-# Create backend/.env manually (at minimum set OPENAI_API_KEY)
-```
+Configuration is loaded from `backend/.env` (see `backend/app/config.py`). Create the file in one of these ways:
 
-3. Initialize database (dev behavior):
-```bash
-# Tables are created automatically on backend startup (dev-friendly).
-# If you are using migrations, you can also run:
-# alembic upgrade head
-```
+- **Interactive (Windows, PowerShell)** — from repo root:
 
-4. Run the server:
+  ```powershell
+  .\setup-env.ps1
+  ```
+
+  Use `-Force` to overwrite an existing file.
+
+- **Interactive (Linux / macOS)** — from repo root:
+
+  ```bash
+  make setup-env
+  ```
+
+These scripts write a minimal `.env` with `OPENAI_API_KEY`, default `DATABASE_URL` / `REDIS_URL` pointing at **localhost**, LangSmith keys, and basic app settings.
+
+**You should extend `backend/.env` for a full local experience** (Google Sign-In, Gmail, correct CORS, and OAuth redirect). Typical additions:
+
+| Variable | Purpose |
+|----------|---------|
+| `OPENAI_API_KEY` | Required for LLM features (set by setup scripts or manually). |
+| `DATABASE_URL` | PostgreSQL URL. Default matches `docker compose` local Postgres. |
+| `REDIS_URL` | Redis URL. Default matches `docker compose` local Redis. |
+| `SECRET_KEY` | Sign Gmail OAuth state and similar; **change in production**. |
+| `GOOGLE_CLIENT_ID` | Google Cloud OAuth client ID (Gmail + optional token verification). |
+| `GOOGLE_CLIENT_SECRET` | OAuth client secret. |
+| `GOOGLE_REDIRECT_URI` | Must match Google Cloud “Authorized redirect URIs”, e.g. `http://localhost:8000/api/v1/gmail/oauth/callback`. |
+| `FRONTEND_URL` | Where the backend redirects the browser after Gmail OAuth (e.g. `http://localhost:3002` if that is your Next dev URL). |
+| `CORS_ORIGINS` | JSON array of allowed browser origins, e.g. `["http://localhost:3000","http://localhost:3001","http://localhost:3002"]`. |
+| `LANGSMITH_API_KEY` | Optional; tracing in LangSmith. |
+
+Optional: `LANGSMITH_TRACING`, `OPENAI_MODEL`, `CONFIDENCE_THRESHOLD`, etc.
+
+#### Run the API
+
 ```bash
 cd backend
 uvicorn app.main:app --reload
 ```
 
-### Frontendimage.png
+The API defaults to **http://localhost:8000**. Check **http://localhost:8000/health** for `{"status":"healthy"}` and **http://localhost:8000/docs** for OpenAPI.
 
-1. Install dependencies:
+If the database is unreachable, the process still starts; DB-backed routes fail until `DATABASE_URL` is correct and Postgres is running.
+
+### 4. Frontend
+
 ```bash
 cd frontend
 npm install
 ```
 
-2. Set up environment variables:
+Create `frontend/.env.local` (see [frontend/README.md](frontend/README.md)):
+
 ```bash
-# Create .env.local
 NEXT_PUBLIC_API_URL=http://localhost:8000
 NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-google-oauth-client-id.apps.googleusercontent.com
 ```
 
-3. Run the development server:
 ```bash
 npm run dev
 ```
 
+Use the dev URL shown in the terminal (often port 3000; Next may pick 3001/3002 if busy). Ensure that URL is listed in backend `CORS_ORIGINS` and in Google Cloud **Authorized JavaScript origins** if you use Google Sign-In.
+
+### 5. All-in-one with Docker (optional)
+
+`docker-compose.yml` includes a `backend` service that builds `./backend`, depends on Postgres and Redis, and reads `./backend/.env`. After creating `backend/.env` and running `docker compose up --build` from the repo root, the API is available on port **8000** with `DATABASE_URL` / `REDIS_URL` overridden for the compose network.
+
 ## Usage
 
-1. Navigate to `http://localhost:3000`
-2. Paste an email or message
-3. View the classified result, draft reply, and extracted tasks
-4. Review pending items in the review queue if needed
+1. Open the frontend URL from `npm run dev`.
+2. Sign in with Google (if configured), connect Gmail when prompted, or use flows that do not require Gmail (e.g. paste text on `/inbox` depending on your build).
+3. View classified results, drafts, and extracted tasks where the UI exposes them; use the review queue as needed.
 
 ## Deploy (Cloud Run + Cloud SQL)
 
-This project uses PostgreSQL via `DATABASE_URL` (see `backend/app/config.py`). For Cloud Run, **do not** use `localhost`.
+This project uses PostgreSQL via `DATABASE_URL` (see `backend/app/config.py`). For Cloud Run, **do not** use `localhost` for the database.
 
 ### Cloud SQL instance
 
@@ -111,6 +168,8 @@ Also set:
 - `SECRET_KEY` (used to sign Gmail OAuth state)
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REDIRECT_URI` to your deployed callback, e.g. `https://YOUR_SERVICE_URL/api/v1/gmail/oauth/callback`
+- `FRONTEND_URL` to your deployed frontend origin (for post–Gmail OAuth redirect)
+- `CORS_ORIGINS` to include your frontend origin
 
 ### Verify the deployment
 
@@ -122,10 +181,12 @@ Also set:
 
 ```
 InboxPilotAI/
-├── backend/          # FastAPI backend
-├── frontend/         # Next.js frontend
-├── README.md         # This file
-└── docker-compose.yml # Local development setup
+├── backend/           # FastAPI backend
+├── frontend/          # Next.js frontend
+├── README.md          # This file
+├── docker-compose.yml # Local Postgres + Redis (+ optional backend)
+├── setup-env.ps1      # Windows helper to create backend/.env
+└── Makefile           # `make setup-env` for Unix-like systems
 ```
 
 ## Milestones
