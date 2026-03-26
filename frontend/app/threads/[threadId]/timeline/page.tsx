@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
+import { getApiBaseUrl } from '@/lib/app-settings'
 
 interface HistoryEntry {
   checkpoint_id?: string
@@ -26,8 +27,7 @@ export default function ThreadTimelinePage() {
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-        const response = await fetch(`${API_BASE_URL}/api/v1/threads/${threadId}/history`, {
+        const response = await fetch(`${getApiBaseUrl()}/api/v1/threads/${threadId}/history`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',

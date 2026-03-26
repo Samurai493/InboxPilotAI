@@ -1,6 +1,6 @@
 """API v1 router."""
 from fastapi import APIRouter
-from app.api.v1 import auth, process, threads, users, reviews, metrics, gmail, analytics, traces
+from app.api.v1 import auth, process, threads, users, reviews, metrics, gmail, analytics, traces, settings_env
 
 router = APIRouter()
 
@@ -13,3 +13,4 @@ router.include_router(metrics.router, tags=["metrics"])
 router.include_router(gmail.router, tags=["gmail"])
 router.include_router(analytics.router, tags=["analytics"])
 router.include_router(traces.router, tags=["traces"])
+router.include_router(settings_env.router, tags=["settings"])

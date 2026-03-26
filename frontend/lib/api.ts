@@ -4,10 +4,9 @@
 
 import { getStoredUserId } from '@/lib/user-session'
 import { getGoogleIdToken } from '@/lib/auth-session'
+import { getApiBaseUrl, getDefaultUserIdFromSettings } from '@/lib/app-settings'
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-
-export { API_BASE_URL }
+export { getApiBaseUrl } from '@/lib/app-settings'
 
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
   const token = getGoogleIdToken()
@@ -20,7 +19,10 @@ function authHeaders(extra?: Record<string, string>): Record<string, string> {
 /** Must match a row in users.id (UUID). From localStorage (home bootstrap), env, or explicit arg. */
 function resolveUserId(explicit?: string): string | undefined {
   const id =
-    explicit ?? getStoredUserId() ?? process.env.NEXT_PUBLIC_DEFAULT_USER_ID
+    explicit ??
+    getStoredUserId() ??
+    getDefaultUserIdFromSettings() ??
+    process.env.NEXT_PUBLIC_DEFAULT_USER_ID
   return id
 }
 
@@ -48,15 +50,21 @@ export interface ThreadStateResponse {
   error?: string
 }
 
+export interface ProcessMessageOptions {
+  /** When false, backend uses general draft/extract only (no domain specialists). Default true. */
+  use_specialist?: boolean
+}
+
 /**
  * Process a message through the workflow
  */
 export async function processMessage(
   message: string,
   userId?: string,
+  options?: ProcessMessageOptions,
 ): Promise<ProcessMessageResponse> {
   const resolvedUserId = resolveUserId(userId)
-  const response = await fetch(`${API_BASE_URL}/api/v1/process`, {
+  const response = await fetch(`${getApiBaseUrl()}/api/v1/process`, {
     method: 'POST',
     headers: {
       ...authHeaders(),
@@ -65,12 +73,20 @@ export async function processMessage(
     body: JSON.stringify({
       message,
       ...(resolvedUserId ? { user_id: resolvedUserId } : {}),
+      ...(options?.use_specialist === false ? { use_specialist: false } : {}),
     }),
   })
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Unknown error' }))
-    throw new Error(error.error || `HTTP error! status: ${response.status}`)
+    const error = await response.json().catch(() => ({}))
+    const detail = (error as { detail?: unknown; error?: string }).detail
+    const msg =
+      typeof detail === 'string'
+        ? detail
+        : Array.isArray(detail) && detail[0]?.msg
+          ? detail[0].msg
+          : (error as { error?: string }).error
+    throw new Error(msg || `HTTP error! status: ${response.status}`)
   }
 
   return response.json()
@@ -80,7 +96,7 @@ export async function processMessage(
  * Get thread state
  */
 export async function getThreadState(threadId: string): Promise<ThreadStateResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/threads/${threadId}`, {
+  const response = await fetch(`${getApiBaseUrl()}/api/v1/threads/${threadId}`, {
     method: 'GET',
     headers: authHeaders({
       'Content-Type': 'application/json',
@@ -115,7 +131,7 @@ export interface GmailMessageResponse {
 
 export async function getGmailStatus(userId: string): Promise<GmailStatusResponse> {
   const response = await fetch(
-    `${API_BASE_URL}/api/v1/gmail/status/${encodeURIComponent(userId)}`,
+    `${getApiBaseUrl()}/api/v1/gmail/status/${encodeURIComponent(userId)}`,
     { method: 'GET', headers: authHeaders({ Accept: 'application/json' }) },
   )
   if (!response.ok) {
@@ -131,7 +147,7 @@ export async function getGmailStatus(userId: string): Promise<GmailStatusRespons
 export async function getGmailAuthorizationUrl(
   userId: string,
 ): Promise<GmailAuthorizeResponse> {
-  const url = new URL(`${API_BASE_URL}/api/v1/gmail/oauth/authorize`)
+  const url = new URL(`${getApiBaseUrl()}/api/v1/gmail/oauth/authorize`)
   url.searchParams.set('user_id', userId)
   const response = await fetch(url.toString(), {
     method: 'GET',
@@ -151,7 +167,7 @@ export async function listGmailMessages(
   userId?: string,
   maxResults: number = 100,
 ): Promise<GmailMessageResponse[]> {
-  const url = new URL(`${API_BASE_URL}/api/v1/gmail/messages`)
+  const url = new URL(`${getApiBaseUrl()}/api/v1/gmail/messages`)
   url.searchParams.set('max_results', String(maxResults))
   if (userId) url.searchParams.set('user_id', userId)
 
@@ -175,7 +191,7 @@ export async function getGmailMessage(
   userId?: string,
 ): Promise<GmailMessageResponse> {
   const url = new URL(
-    `${API_BASE_URL}/api/v1/gmail/messages/${encodeURIComponent(messageId)}`,
+    `${getApiBaseUrl()}/api/v1/gmail/messages/${encodeURIComponent(messageId)}`,
   )
   if (userId) url.searchParams.set('user_id', userId)
 
@@ -198,7 +214,7 @@ export async function createGmailDraft(
   payload: { to: string; subject: string; body: string },
   userId?: string,
 ): Promise<unknown> {
-  const url = new URL(`${API_BASE_URL}/api/v1/gmail/drafts`)
+  const url = new URL(`${getApiBaseUrl()}/api/v1/gmail/drafts`)
   if (userId) url.searchParams.set('user_id', userId)
   const response = await fetch(url.toString(), {
     method: 'POST',
@@ -221,7 +237,7 @@ export async function createGmailDraft(
 export async function authenticateWithGoogleIdToken(
   idToken: string,
 ): Promise<AuthUserResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/auth/google`, {
+  const response = await fetch(`${getApiBaseUrl()}/api/v1/auth/google`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -240,7 +256,7 @@ export async function authenticateWithGoogleIdToken(
 }
 
 export async function getAuthenticatedUser(): Promise<AuthUserResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/auth/me`, {
+  const response = await fetch(`${getApiBaseUrl()}/api/v1/auth/me`, {
     method: 'GET',
     headers: authHeaders({ Accept: 'application/json' }),
   })
@@ -255,7 +271,7 @@ export async function getAuthenticatedUser(): Promise<AuthUserResponse> {
 }
 
 export async function getPublicAuthConfig(): Promise<PublicAuthConfigResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/auth/config`, {
+  const response = await fetch(`${getApiBaseUrl()}/api/v1/auth/config`, {
     method: 'GET',
     headers: { Accept: 'application/json' },
   })

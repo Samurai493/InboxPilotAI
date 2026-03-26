@@ -42,6 +42,10 @@ if ([string]::IsNullOrEmpty($langsmithApiKey)) {
 }
 
 $content = @"
+LLM_PROVIDER=openai
+# LLM_MODEL=
+# ANTHROPIC_API_KEY=
+# GEMINI_API_KEY=
 OPENAI_API_KEY=$openaiApiKey
 OPENAI_MODEL=gpt-4o-mini
 LANGSMITH_API_KEY=$langsmithApiKeyValue

@@ -1,6 +1,5 @@
 """Main LangGraph workflow for inbox processing."""
 from typing import Literal
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph
 from langgraph.graph.graph import START, END
@@ -8,6 +7,7 @@ from langgraph.graph.graph import START, END
 from app.graphs.state import InboxPilotState
 from app.graphs.checkpoint import get_checkpointer
 from app.config import settings
+from app.services.llm_utils import get_chat_model, get_text_content
 from app.services.tracing import setup_langsmith
 
 # Setup LangSmith tracing
@@ -62,11 +62,7 @@ def normalize_message(state: InboxPilotState) -> InboxPilotState:
 
 def classify_intent(state: InboxPilotState) -> InboxPilotState:
     """Classify message intent using LLM."""
-    model = ChatOpenAI(
-        model=settings.OPENAI_MODEL,
-        temperature=0,
-        api_key=settings.OPENAI_API_KEY
-    )
+    model = get_chat_model(temperature=0)
     
     prompt = ChatPromptTemplate.from_messages([
         ("system", """You are an expert at classifying email messages. 
@@ -87,7 +83,7 @@ def classify_intent(state: InboxPilotState) -> InboxPilotState:
     chain = prompt | model
     response = chain.invoke({"message": message})
     
-    intent = response.content.strip().lower()
+    intent = get_text_content(response).strip().lower()
     
     # Validate intent
     valid_intents = ["recruiter", "scheduling", "academic", "support", "billing", "personal", "spam"]
@@ -166,11 +162,7 @@ def route_to_specialist(state: InboxPilotState) -> InboxPilotState:
 
 def draft_reply(state: InboxPilotState) -> InboxPilotState:
     """Generate context-aware reply draft."""
-    model = ChatOpenAI(
-        model=settings.OPENAI_MODEL,
-        temperature=0.7,
-        api_key=settings.OPENAI_API_KEY
-    )
+    model = get_chat_model(temperature=0.7)
     
     intent = state.get("intent", "personal")
     message = state.get("normalized_message", state.get("raw_message", ""))
@@ -219,7 +211,7 @@ def draft_reply(state: InboxPilotState) -> InboxPilotState:
     chain = prompt | model
     response = chain.invoke({"message": message})
     
-    draft = response.content.strip()
+    draft = get_text_content(response).strip()
     
     # Append signature if provided
     if signature:
@@ -233,11 +225,7 @@ def draft_reply(state: InboxPilotState) -> InboxPilotState:
 
 def score_confidence(state: InboxPilotState) -> InboxPilotState:
     """Score confidence in the draft reply."""
-    model = ChatOpenAI(
-        model=settings.OPENAI_MODEL,
-        temperature=0,
-        api_key=settings.OPENAI_API_KEY
-    )
+    model = get_chat_model(temperature=0)
     
     draft = state.get("draft_reply", "")
     message = state.get("normalized_message", state.get("raw_message", ""))
@@ -259,7 +247,7 @@ def score_confidence(state: InboxPilotState) -> InboxPilotState:
     response = chain.invoke({})
     
     try:
-        confidence = float(response.content.strip())
+        confidence = float(get_text_content(response).strip())
         # Clamp to 0.0-1.0
         confidence = max(0.0, min(1.0, confidence))
     except (ValueError, AttributeError):
@@ -346,11 +334,7 @@ def human_review_interrupt(state: InboxPilotState):
 
 def extract_tasks(state: InboxPilotState) -> InboxPilotState:
     """Extract action items and deadlines."""
-    model = ChatOpenAI(
-        model=settings.OPENAI_MODEL,
-        temperature=0,
-        api_key=settings.OPENAI_API_KEY
-    )
+    model = get_chat_model(temperature=0)
     
     message = state.get("normalized_message", state.get("raw_message", ""))
     
@@ -371,7 +355,7 @@ def extract_tasks(state: InboxPilotState) -> InboxPilotState:
     
     import json
     try:
-        tasks = json.loads(response.content.strip())
+        tasks = json.loads(get_text_content(response).strip())
         if not isinstance(tasks, list):
             tasks = []
     except json.JSONDecodeError:
@@ -462,8 +446,10 @@ def create_graph():
     builder.add_edge("classify_intent", "retrieve_memory")
     builder.add_edge("retrieve_memory", "route_to_specialist")
     
-    # Conditional routing based on intent
+    # Conditional routing based on intent (or force general path for benchmarks)
     def route_after_classify(state: InboxPilotState) -> str:
+        if state.get("use_specialist") is False:
+            return "generate_draft"
         intent = state.get("intent", "personal")
         specialist_map = {
             "recruiter": "recruiter_draft",

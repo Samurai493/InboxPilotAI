@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { getApiBaseUrl } from '@/lib/app-settings'
 
 interface Review {
   id: string
@@ -27,8 +28,7 @@ export default function ReviewsPage() {
 
   const fetchReviews = async () => {
     try {
-      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-      const response = await fetch(`${API_BASE_URL}/api/v1/reviews/pending`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/v1/reviews/pending`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -50,8 +50,7 @@ export default function ReviewsPage() {
 
   const handleApprove = async (reviewId: string, editedDraft?: string) => {
     try {
-      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-      const response = await fetch(`${API_BASE_URL}/api/v1/reviews/${reviewId}/approve`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/v1/reviews/${reviewId}/approve`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -75,8 +74,7 @@ export default function ReviewsPage() {
 
   const handleReject = async (reviewId: string, reason?: string) => {
     try {
-      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-      const response = await fetch(`${API_BASE_URL}/api/v1/reviews/${reviewId}/reject`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/v1/reviews/${reviewId}/reject`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

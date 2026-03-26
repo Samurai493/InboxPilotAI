@@ -17,9 +17,15 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
     
-    # OpenAI / LLM
+    # LLM: set LLM_PROVIDER and LLM_MODEL; OPENAI_* kept for backward compatibility.
+    # LLM_PROVIDER: openai | anthropic | google_genai
+    LLM_PROVIDER: str = "openai"
+    LLM_MODEL: Optional[str] = None  # Defaults to OPENAI_MODEL when unset (OpenAI path)
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-4o-mini"
+    ANTHROPIC_API_KEY: Optional[str] = None
+    # Gemini (Google AI Studio) — not the same as Gmail OAuth client secret
+    GEMINI_API_KEY: Optional[str] = None
     
     # LangSmith
     LANGSMITH_API_KEY: Optional[str] = None
@@ -49,6 +55,10 @@ class Settings(BaseSettings):
     # Application Settings
     CONFIDENCE_THRESHOLD: float = 0.7
     MAX_MESSAGE_LENGTH: int = 10000
+
+    # When True, GET /api/v1/settings/env-template returns values loaded from backend .env (for Settings UI).
+    # Default True for local dev; set ENABLE_ENV_TEMPLATE_ENDPOINT=false in production (exposes secrets).
+    ENABLE_ENV_TEMPLATE_ENDPOINT: bool = True
     
     class Config:
         env_file = ".env"

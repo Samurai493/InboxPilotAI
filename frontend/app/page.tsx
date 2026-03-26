@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import Script from 'next/script'
+import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
 import {
   authenticateWithGoogleIdToken,
@@ -12,11 +13,13 @@ import {
   getPublicAuthConfig,
   getGmailMessage,
   listGmailMessages,
+  processMessage,
 } from '@/lib/api'
 import type { GmailMessageResponse } from '@/lib/api'
 import type { GmailStatusResponse } from '@/lib/api'
 import { clearGoogleIdToken, getGoogleIdToken, setGoogleIdToken } from '@/lib/auth-session'
 import { setStoredUserId } from '@/lib/user-session'
+import { getGoogleClientIdForGis } from '@/lib/app-settings'
 
 declare global {
   interface Window {
@@ -25,6 +28,7 @@ declare global {
 }
 
 export default function Home() {
+  const router = useRouter()
   const [userId, setUserId] = useState<string | null>(null)
   const [gmailConnected, setGmailConnected] = useState(false)
   const [gmailEmail, setGmailEmail] = useState<string | null>(null)
@@ -47,6 +51,9 @@ export default function Home() {
   const [composeBody, setComposeBody] = useState('')
   const [composeBusy, setComposeBusy] = useState(false)
   const [composeError, setComposeError] = useState<string | null>(null)
+
+  const [workflowBusy, setWorkflowBusy] = useState(false)
+  const [workflowError, setWorkflowError] = useState<string | null>(null)
 
   const refreshGmail = useCallback(async (uid: string): Promise<GmailStatusResponse> => {
     const status = await getGmailStatus(uid)
@@ -202,7 +209,7 @@ export default function Home() {
   }
 
   const handleGoogleScriptLoad = async () => {
-    let clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID
+    let clientId = getGoogleClientIdForGis() || undefined
     if (!clientId) {
       try {
         const runtimeConfig = await getPublicAuthConfig()
@@ -255,7 +262,33 @@ export default function Home() {
     setSelectedGmailMessage(null)
     setSelectedGmailMessageError(null)
     setComposeOpen(false)
+    setWorkflowError(null)
+    setWorkflowBusy(false)
   }
+
+  const handleRunWorkflow = useCallback(async () => {
+    if (!userId || !selectedGmailMessage) return
+    setWorkflowBusy(true)
+    setWorkflowError(null)
+    try {
+      const raw = [
+        `Subject: ${selectedGmailMessage.subject || '(no subject)'}`,
+        `From: ${selectedGmailMessage.from_email}`,
+        `Date: ${selectedGmailMessage.date}`,
+        '',
+        selectedGmailMessage.body || '',
+      ].join('\n')
+      const result = await processMessage(raw, userId)
+      if (result.status === 'failed' && result.error) {
+        throw new Error(result.error)
+      }
+      router.push(`/results/${result.thread_id}`)
+    } catch (e) {
+      setWorkflowError(e instanceof Error ? e.message : 'Workflow failed')
+    } finally {
+      setWorkflowBusy(false)
+    }
+  }, [userId, selectedGmailMessage, router])
 
   const handleComposeSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -303,6 +336,12 @@ export default function Home() {
               </div>
             </div>
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              <Link
+                href="/settings"
+                className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                Settings
+              </Link>
               <button
                 type="button"
                 onClick={() => {
@@ -391,6 +430,24 @@ export default function Home() {
                   {selectedGmailMessageError}
                 </p>
               ) : null}
+              {workflowError ? (
+                <p className="shrink-0 border-b border-red-100 bg-red-50 px-6 py-3 text-sm text-red-600">
+                  {workflowError}
+                </p>
+              ) : null}
+              <div className="flex shrink-0 items-center justify-between gap-3 border-b border-gray-100 bg-white px-6 py-3">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Reader
+                </span>
+                <button
+                  type="button"
+                  disabled={!selectedGmailMessage || workflowBusy || selectedGmailMessageBusy}
+                  onClick={() => void handleRunWorkflow()}
+                  className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+                >
+                  {workflowBusy ? 'Running workflow…' : 'Run InboxPilot workflow'}
+                </button>
+              </div>
               <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 lg:px-12 lg:py-10">
                 {selectedGmailMessage && !selectedGmailMessageBusy ? (
                   <>
@@ -448,7 +505,7 @@ export default function Home() {
                     type="email"
                     value={composeTo}
                     onChange={(e) => setComposeTo(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400"
                     placeholder="name@example.com"
                     required
                     disabled={composeBusy}
@@ -461,7 +518,7 @@ export default function Home() {
                     type="text"
                     value={composeSubject}
                     onChange={(e) => setComposeSubject(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400"
                     disabled={composeBusy}
                   />
                   <label htmlFor="compose-body" className="mt-4 text-sm font-medium text-gray-700">
@@ -472,7 +529,7 @@ export default function Home() {
                     value={composeBody}
                     onChange={(e) => setComposeBody(e.target.value)}
                     rows={8}
-                    className="mt-1 min-h-[120px] w-full flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    className="mt-1 min-h-[120px] w-full flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400"
                     disabled={composeBusy}
                   />
                   <div className="mt-4 flex justify-end gap-2 border-t border-gray-100 pt-4">
@@ -498,7 +555,15 @@ export default function Home() {
           ) : null}
         </>
       ) : (
-      <div className="container mx-auto px-4 py-16">
+      <div className="container relative mx-auto px-4 py-16">
+        <div className="absolute right-4 top-4 z-10 sm:right-8 sm:top-6">
+          <Link
+            href="/settings"
+            className="inline-flex items-center rounded-lg border border-gray-200 bg-white/90 px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50"
+          >
+            Settings
+          </Link>
+        </div>
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-5xl font-bold text-gray-900 mb-6">
             InboxPilot AI

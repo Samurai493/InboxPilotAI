@@ -14,7 +14,8 @@ class GraphService:
     def process_message(
         user_id: str,
         raw_message: str,
-        message_id: str = None
+        message_id: str = None,
+        use_specialist: bool = True,
     ) -> Dict[str, Any]:
         """
         Process a message through the workflow.
@@ -23,7 +24,8 @@ class GraphService:
             user_id: User identifier
             raw_message: Raw message text
             message_id: Optional external message ID
-            
+            use_specialist: If False, use general draft/extract nodes only (for A/B vs specialists)
+
         Returns:
             Dictionary with thread_id and initial state
         """
@@ -49,7 +51,8 @@ class GraphService:
             "confidence_score": None,
             "final_status": "pending",
             "trace_id": None,
-            "audit_log": []
+            "audit_log": [],
+            "use_specialist": use_specialist,
         }
         
         # Configure graph execution

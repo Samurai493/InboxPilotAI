@@ -88,7 +88,11 @@ These scripts write a minimal `.env` with `OPENAI_API_KEY`, default `DATABASE_UR
 
 | Variable | Purpose |
 |----------|---------|
-| `OPENAI_API_KEY` | Required for LLM features (set by setup scripts or manually). |
+| `LLM_PROVIDER` | `openai` (default), `anthropic`, or `google_genai` (Gemini). |
+| `LLM_MODEL` | Optional override (e.g. `gpt-4o-mini`, `claude-3-5-sonnet-20241022`, `gemini-1.5-flash`). If unset, defaults per provider. |
+| `OPENAI_API_KEY` | Required when `LLM_PROVIDER=openai` (set by setup scripts or manually). |
+| `ANTHROPIC_API_KEY` | Required when `LLM_PROVIDER=anthropic`. |
+| `GEMINI_API_KEY` | Required when `LLM_PROVIDER=google_genai` (Google AI Studio key for Gemini). |
 | `DATABASE_URL` | PostgreSQL URL. Default matches `docker compose` local Postgres. |
 | `REDIS_URL` | Redis URL. Default matches `docker compose` local Redis. |
 | `SECRET_KEY` | Sign Gmail OAuth state and similar; **change in production**. |
@@ -99,7 +103,7 @@ These scripts write a minimal `.env` with `OPENAI_API_KEY`, default `DATABASE_UR
 | `CORS_ORIGINS` | JSON array of allowed browser origins, e.g. `["http://localhost:3000","http://localhost:3001","http://localhost:3002"]`. |
 | `LANGSMITH_API_KEY` | Optional; tracing in LangSmith. |
 
-Optional: `LANGSMITH_TRACING`, `OPENAI_MODEL`, `CONFIDENCE_THRESHOLD`, etc.
+Optional: `LANGSMITH_TRACING`, `OPENAI_MODEL` (used when `LLM_MODEL` is unset and provider is OpenAI), `CONFIDENCE_THRESHOLD`, etc.
 
 #### Run the API
 
@@ -182,12 +186,15 @@ Also set:
 ```
 InboxPilotAI/
 ├── backend/           # FastAPI backend
+├── docs/              # Architecture notes (e.g. multi-agent workflow)
 ├── frontend/          # Next.js frontend
 ├── README.md          # This file
 ├── docker-compose.yml # Local Postgres + Redis (+ optional backend)
 ├── setup-env.ps1      # Windows helper to create backend/.env
 └── Makefile           # `make setup-env` for Unix-like systems
 ```
+
+See [docs/MULTI_AGENT_WORKFLOW.md](docs/MULTI_AGENT_WORKFLOW.md) for how classifier routing and specialist nodes fit together.
 
 ## Milestones
 

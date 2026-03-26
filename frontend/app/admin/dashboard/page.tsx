@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { getApiBaseUrl } from '@/lib/app-settings'
 
 interface Metrics {
   total_threads: number
@@ -27,8 +28,7 @@ export default function AdminDashboard() {
 
   const fetchMetrics = async () => {
     try {
-      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-      const response = await fetch(`${API_BASE_URL}/api/v1/metrics/summary`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/v1/metrics/summary`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',

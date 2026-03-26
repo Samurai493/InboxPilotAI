@@ -29,7 +29,8 @@ class BenchmarkingService:
                 # Process message
                 result = GraphService.process_message(
                     user_id="benchmark-user",
-                    raw_message=msg_data["message"]
+                    raw_message=msg_data["message"],
+                    use_specialist=use_specialist,
                 )
                 
                 state = result.get("state", {})
@@ -87,8 +88,6 @@ class BenchmarkingService:
         # Run with specialist routing
         specialist_results = BenchmarkingService.run_comparison(messages, use_specialist=True)
         
-        # Run with general routing (would need to modify graph to disable specialist routing)
-        # For now, we'll use the same results but mark them differently
         general_results = BenchmarkingService.run_comparison(messages, use_specialist=False)
         
         return {

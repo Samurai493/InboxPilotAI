@@ -1,5 +1,5 @@
 """Shared state schema for InboxPilot AI workflow."""
-from typing import TypedDict, Optional, List, Dict, Any
+from typing import TypedDict, Optional, List, Dict, Any, NotRequired
 from datetime import datetime
 
 
@@ -21,6 +21,8 @@ class InboxPilotState(TypedDict):
     # Classification and routing
     intent: Optional[str]  # recruiter, scheduling, academic, support, billing, personal, spam
     urgency_score: Optional[str]  # low, medium, high
+    # When False, skip specialist nodes and use generate_draft + extract_tasks (benchmarks / A-B)
+    use_specialist: NotRequired[bool]
     
     # Risk and safety
     risk_flags: Optional[List[str]]

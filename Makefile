@@ -24,6 +24,7 @@ setup-env:
 	fi
 
 	printf '%s\n' \
+		"LLM_PROVIDER=openai" \
 		"OPENAI_API_KEY=$$OPENAI_API_KEY" \
 		"OPENAI_MODEL=gpt-4o-mini" \
 		"LANGSMITH_API_KEY=$$LANGSMITH_API_KEY" \

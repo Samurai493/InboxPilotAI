@@ -14,6 +14,10 @@ class ProcessMessageRequest(BaseModel):
 
     message: str
     user_id: str | None = Field(default=None, description="users.id (UUID string)")
+    use_specialist: bool = Field(
+        default=True,
+        description="If false, run general draft/extract only (skip domain specialist nodes).",
+    )
 
 
 class ProcessMessageResponse(BaseModel):
@@ -42,7 +46,8 @@ async def process_message(
         user_id = resolve_user_id_or_current(request.user_id, current_user)
         result = GraphService.process_message(
             user_id=user_id,
-            raw_message=request.message
+            raw_message=request.message,
+            use_specialist=request.use_specialist,
         )
         
         return ProcessMessageResponse(

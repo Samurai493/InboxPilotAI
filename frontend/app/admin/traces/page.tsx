@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { getApiBaseUrl } from '@/lib/app-settings'
 
 export default function TracesPage() {
   const [traceId, setTraceId] = useState('')
@@ -11,8 +12,7 @@ export default function TracesPage() {
     
     setLoading(true)
     try {
-      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-      const response = await fetch(`${API_BASE_URL}/api/v1/traces/${traceId}`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/v1/traces/${traceId}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
