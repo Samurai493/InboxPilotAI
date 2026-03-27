@@ -21,8 +21,18 @@ class InboxPilotState(TypedDict):
     # Classification and routing
     intent: Optional[str]  # recruiter, scheduling, academic, support, billing, personal, spam
     urgency_score: Optional[str]  # low, medium, high
+    selected_agent: NotRequired[str | None]  # recruiter, scheduling, academic, support, billing, general
+    orchestration_rationale: NotRequired[str | None]
+    planned_actions: NotRequired[List[str] | None]
     # When False, skip specialist nodes and use generate_draft + extract_tasks (benchmarks / A-B)
     use_specialist: NotRequired[bool]
+    # Optional per-request overrides (e.g. from Settings UI); fall back to backend .env when unset
+    llm_provider: NotRequired[str | None]
+    llm_model: NotRequired[str | None]
+    # Optional per-request API keys (Settings UI); prefer server env in production
+    openai_api_key: NotRequired[str | None]
+    anthropic_api_key: NotRequired[str | None]
+    gemini_api_key: NotRequired[str | None]
     
     # Risk and safety
     risk_flags: Optional[List[str]]

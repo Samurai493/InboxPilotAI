@@ -1,12 +1,12 @@
 """Billing specialist agent."""
 from langchain_core.prompts import ChatPromptTemplate
 from app.graphs.state import InboxPilotState
-from app.services.llm_utils import get_chat_model, get_text_content
+from app.services.llm_utils import get_chat_model_for_state, get_text_content
 
 
 def billing_draft_reply(state: InboxPilotState) -> InboxPilotState:
     """Specialist reply drafting for billing messages."""
-    model = get_chat_model(temperature=0.7)
+    model = get_chat_model_for_state(state, temperature=0.7)
 
     message = state.get("normalized_message", state.get("raw_message", ""))
 
@@ -32,7 +32,7 @@ def billing_draft_reply(state: InboxPilotState) -> InboxPilotState:
 
 def billing_extract_tasks(state: InboxPilotState) -> InboxPilotState:
     """Specialist task extraction for billing messages."""
-    model = get_chat_model(temperature=0)
+    model = get_chat_model_for_state(state, temperature=0)
 
     message = state.get("normalized_message", state.get("raw_message", ""))
 

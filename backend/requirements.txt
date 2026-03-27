@@ -1,6 +1,7 @@
 # Core FastAPI dependencies
 fastapi==0.104.1
-uvicorn[standard]==0.24.0
+# Loose pin: strict == can conflict with extras resolution; LangChain stack may pull httpx newer than 0.25.x
+uvicorn[standard]>=0.24.0,<0.35.0
 pydantic==2.5.0
 pydantic-settings==2.1.0
 
@@ -11,14 +12,16 @@ psycopg2-binary==2.9.9
 redis==5.0.1
 
 # LangGraph and LangChain
-langgraph==0.0.40
-langchain==0.1.20
-langchain-openai==0.0.5
-langchain-core>=0.1.52,<0.2.0
-langsmith>=0.1.17,<0.2.0
-langchain-anthropic>=0.1.0,<0.2.0
-langchain-community>=0.0.38
-google-generativeai>=0.5.0
+# langgraph.types (interrupt, Command) exists in langgraph>=0.2.
+# Pin a known-compatible LangChain 0.2 set to avoid pip resolver conflicts.
+langgraph==0.2.48
+langchain-core==0.2.43
+langchain==0.2.17
+langchain-openai==0.1.25
+langchain-anthropic==0.1.23
+langchain-community==0.2.17
+langchain-google-genai==1.0.10
+langsmith>=0.1.112,<0.2.0
 
 # Gmail API
 google-auth==2.23.4
@@ -29,7 +32,7 @@ google-api-python-client==2.108.0
 # Utilities
 python-dotenv==1.0.0
 python-multipart==0.0.6
-httpx==0.25.2
+httpx>=0.25.0,<0.29.0
 
 # Development
 pytest==7.4.3

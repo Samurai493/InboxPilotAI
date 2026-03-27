@@ -84,6 +84,12 @@ export function clearAppSettings(): void {
   }
 }
 
+/** True after the user has saved Settings at least once (localStorage key exists). */
+export function hasStoredAppSettings(): boolean {
+  if (typeof window === 'undefined') return false
+  return !!localStorage.getItem(APP_SETTINGS_STORAGE_KEY)
+}
+
 /** Apply non-empty values from partial into a copy of current (strings: skip empty; booleans: always apply). */
 export function mergeImportedEnvIntoSettings(
   current: AppSettings,
@@ -142,7 +148,10 @@ export function buildBackendEnvFileContent(s: AppSettings): string {
   add('LLM_PROVIDER', s.llmProvider?.trim() || undefined)
   add('LLM_MODEL', s.llmModel?.trim() || undefined)
   add('OPENAI_API_KEY', s.openaiApiKey)
-  add('OPENAI_MODEL', s.openaiModel || undefined)
+  add(
+    'OPENAI_MODEL',
+    s.llmProvider === 'openai' ? (s.llmModel?.trim() || s.openaiModel?.trim() || undefined) : undefined,
+  )
   add('ANTHROPIC_API_KEY', s.anthropicApiKey)
   add('GEMINI_API_KEY', s.geminiApiKey)
   add('LANGSMITH_API_KEY', s.langsmithApiKey)

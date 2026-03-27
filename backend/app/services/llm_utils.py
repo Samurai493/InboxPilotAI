@@ -7,6 +7,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 
 from app.config import settings
+from app.graphs.state import InboxPilotState
 
 
 def get_text_content(message: Union[BaseMessage, Any]) -> str:
@@ -27,55 +28,82 @@ def get_text_content(message: Union[BaseMessage, Any]) -> str:
     return str(raw)
 
 
-def get_chat_model(*, temperature: float = 0.0) -> BaseChatModel:
+def _norm_opt(s: str | None) -> str | None:
+    if s is None:
+        return None
+    t = s.strip()
+    return t if t else None
+
+
+def get_chat_model(
+    *,
+    temperature: float = 0.0,
+    provider: str | None = None,
+    model: str | None = None,
+    openai_api_key: str | None = None,
+    anthropic_api_key: str | None = None,
+    gemini_api_key: str | None = None,
+) -> BaseChatModel:
     """
     Build the configured chat model.
+
+    Optional ``provider`` / ``model`` override ``settings.LLM_PROVIDER`` / ``LLM_MODEL`` (e.g. from UI).
 
     LLM_PROVIDER:
       - openai (default): requires OPENAI_API_KEY
       - anthropic: requires ANTHROPIC_API_KEY
       - google_genai: requires GEMINI_API_KEY (Google AI Studio / Gemini API)
 
-    Model name uses LLM_MODEL, or falls back to OPENAI_MODEL for backward compatibility.
+    Model name: ``model`` param, else settings.LLM_MODEL, else provider defaults.
     """
-    provider = (settings.LLM_PROVIDER or "openai").lower().strip()
+    p = _norm_opt(provider) or (settings.LLM_PROVIDER or "openai")
+    provider = p.lower().strip()
 
-    if settings.LLM_MODEL and settings.LLM_MODEL.strip():
+    m_override = _norm_opt(model)
+    if m_override:
+        model_name = m_override
+    elif settings.LLM_MODEL and settings.LLM_MODEL.strip():
         model_name = settings.LLM_MODEL.strip()
     elif provider == "openai":
         model_name = (settings.OPENAI_MODEL or "gpt-4o-mini").strip()
     elif provider in ("anthropic", "claude"):
         model_name = "claude-3-5-sonnet-20241022"
     elif provider in ("google_genai", "google", "gemini"):
-        model_name = "gemini-1.5-flash"
+        # Google retires older IDs; use current stable names (see ai.google.dev Gemini API models).
+        model_name = "gemini-2.5-flash"
     else:
         model_name = "gpt-4o-mini"
 
     if provider == "openai":
         from langchain_openai import ChatOpenAI
 
-        if not settings.OPENAI_API_KEY:
-            raise RuntimeError("OPENAI_API_KEY is required when LLM_PROVIDER is openai")
-        return ChatOpenAI(model=model_name, temperature=temperature, api_key=settings.OPENAI_API_KEY)
+        okey = _norm_opt(openai_api_key) or settings.OPENAI_API_KEY
+        if not okey:
+            raise RuntimeError(
+                "OPENAI_API_KEY is required when LLM_PROVIDER is openai "
+                "(set in backend/.env or save it in app Settings)"
+            )
+        return ChatOpenAI(model=model_name, temperature=temperature, api_key=okey)
 
     if provider in ("anthropic", "claude"):
         from langchain_anthropic import ChatAnthropic
 
-        if not settings.ANTHROPIC_API_KEY:
-            raise RuntimeError("ANTHROPIC_API_KEY is required when LLM_PROVIDER is anthropic")
-        return ChatAnthropic(model=model_name, temperature=temperature, api_key=settings.ANTHROPIC_API_KEY)
+        akey = _norm_opt(anthropic_api_key) or settings.ANTHROPIC_API_KEY
+        if not akey:
+            raise RuntimeError(
+                "ANTHROPIC_API_KEY is required when LLM_PROVIDER is anthropic "
+                "(set in backend/.env or save it in app Settings)"
+            )
+        return ChatAnthropic(model=model_name, temperature=temperature, api_key=akey)
 
     if provider in ("google_genai", "google", "gemini"):
-        try:
-            from langchain_community.chat_models import ChatGoogleGenerativeAI
-        except ImportError:  # pragma: no cover
-            from langchain_google_genai import ChatGoogleGenerativeAI
+        from langchain_google_genai import ChatGoogleGenerativeAI
 
-        key = settings.GEMINI_API_KEY
+        key = _norm_opt(gemini_api_key) or settings.GEMINI_API_KEY
         if not key:
             raise RuntimeError(
                 "GEMINI_API_KEY is required when LLM_PROVIDER is google_genai "
-                "(create a key in Google AI Studio)"
+                "(create a key in Google AI Studio, set GEMINI_API_KEY in backend/.env, or save it in app Settings)"
             )
         return ChatGoogleGenerativeAI(
             model=model_name,
@@ -86,4 +114,25 @@ def get_chat_model(*, temperature: float = 0.0) -> BaseChatModel:
     raise ValueError(
         f"Unsupported LLM_PROVIDER={provider!r}. "
         "Use: openai, anthropic, or google_genai"
+    )
+
+
+def _str_key(state: InboxPilotState, name: str) -> str | None:
+    v = state.get(name)
+    return _norm_opt(v) if isinstance(v, str) else None
+
+
+def get_chat_model_for_state(state: InboxPilotState, *, temperature: float = 0.0) -> BaseChatModel:
+    """Like ``get_chat_model`` but reads optional provider, model, and API keys from graph state."""
+    lp = state.get("llm_provider")
+    lm = state.get("llm_model")
+    p = lp.strip() if isinstance(lp, str) and lp.strip() else None
+    m = lm.strip() if isinstance(lm, str) and lm.strip() else None
+    return get_chat_model(
+        temperature=temperature,
+        provider=p,
+        model=m,
+        openai_api_key=_str_key(state, "openai_api_key"),
+        anthropic_api_key=_str_key(state, "anthropic_api_key"),
+        gemini_api_key=_str_key(state, "gemini_api_key"),
     )

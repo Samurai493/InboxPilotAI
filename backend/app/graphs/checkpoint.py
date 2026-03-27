@@ -1,4 +1,4 @@
-"""LangGraph checkpointer: Postgres when langgraph-checkpoint-postgres is installed, else MemorySaver."""
+"""LangGraph checkpointer: Postgres when `langgraph-checkpoint-postgres` is installed, else MemorySaver."""
 from typing import Optional
 
 from langgraph.checkpoint.base import BaseCheckpointSaver

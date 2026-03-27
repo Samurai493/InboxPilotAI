@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import {
   type AppSettings,
   buildBackendEnvFileContent,
@@ -12,6 +12,7 @@ import {
   mergeImportedEnvIntoSettings,
   saveAppSettings,
 } from '@/lib/app-settings'
+import { getLlmModelSelectOptionsWithSaved } from '@/lib/llm-models'
 
 const inputClass =
   'mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400'
@@ -44,6 +45,27 @@ export default function SettingsPage() {
     setS((prev) => ({ ...prev, [key]: value }))
     setSaved(false)
   }, [])
+
+  const modelOptions = useMemo(
+    () => getLlmModelSelectOptionsWithSaved(s.llmProvider, s.llmModel),
+    [s.llmProvider, s.llmModel],
+  )
+
+  const handleLlmProviderChange = (e: ChangeEvent<HTMLSelectElement>) => {
+    const next = e.target.value
+    setS((prev) => ({ ...prev, llmProvider: next, llmModel: '' }))
+    setSaved(false)
+  }
+
+  const handleLlmModelChange = (e: ChangeEvent<HTMLSelectElement>) => {
+    const v = e.target.value
+    setS((prev) => ({
+      ...prev,
+      llmModel: v,
+      ...(prev.llmProvider === 'openai' ? { openaiModel: v.trim() ? v : 'gpt-4o-mini' } : {}),
+    }))
+    setSaved(false)
+  }
 
   const handleSave = () => {
     saveAppSettings(s)
@@ -192,6 +214,12 @@ export default function SettingsPage() {
             Fill these to generate a snippet. Copy and merge into <code className="text-xs">backend/.env</code>, then
             restart the API.
           </p>
+          <p className="mt-2 text-sm text-gray-600">
+            <strong>Save settings</strong> after changing provider, model, or keys so each workflow run sends{' '}
+            <code className="text-xs">llm_provider</code>, <code className="text-xs">llm_model</code>, and any filled
+            API keys to the API. Alternatively, put keys only in <code className="text-xs">backend/.env</code> on the
+            server (nothing is sent from the browser for keys you leave blank here).
+          </p>
           <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="md:col-span-2">
               <label className={labelClass} htmlFor="llmProvider">
@@ -200,7 +228,7 @@ export default function SettingsPage() {
               <select
                 id="llmProvider"
                 value={s.llmProvider}
-                onChange={(e) => update('llmProvider', e.target.value)}
+                onChange={handleLlmProviderChange}
                 className={inputClass}
               >
                 <option value="openai">openai</option>
@@ -212,15 +240,21 @@ export default function SettingsPage() {
               <label className={labelClass} htmlFor="llmModel">
                 LLM_MODEL (optional override)
               </label>
-              <input
+              <select
                 id="llmModel"
-                type="text"
                 value={s.llmModel}
-                onChange={(e) => update('llmModel', e.target.value)}
+                onChange={handleLlmModelChange}
                 className={inputClass}
-                placeholder="e.g. gpt-4o-mini, claude-3-5-sonnet-20241022, gemini-1.5-flash"
-                autoComplete="off"
-              />
+              >
+                {modelOptions.map((opt) => (
+                  <option key={opt.value || '__default__'} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-gray-500">
+                Only models supported by this app&apos;s LangChain setup are listed. Choose a provider above first.
+              </p>
             </div>
             <div className="md:col-span-2">
               <label className={labelClass} htmlFor={primaryLlmKey.id}>
@@ -238,19 +272,10 @@ export default function SettingsPage() {
               />
             </div>
             {s.llmProvider === 'openai' ? (
-              <div className="md:col-span-2">
-                <label className={labelClass} htmlFor="openaiModel">
-                  OPENAI_MODEL (when using OpenAI)
-                </label>
-                <input
-                  id="openaiModel"
-                  type="text"
-                  value={s.openaiModel}
-                  onChange={(e) => update('openaiModel', e.target.value)}
-                  className={inputClass}
-                  placeholder="gpt-4o-mini"
-                />
-              </div>
+              <p className="md:col-span-2 text-sm text-gray-600">
+                <code className="text-xs">OPENAI_MODEL</code> in the copied backend snippet follows the model you select
+                above (when empty, the snippet uses <code className="text-xs">gpt-4o-mini</code> for OpenAI defaults).
+              </p>
             ) : null}
             <div>
               <label className={labelClass} htmlFor="langsmithApiKey">

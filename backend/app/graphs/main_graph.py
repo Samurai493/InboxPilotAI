@@ -1,13 +1,12 @@
 """Main LangGraph workflow for inbox processing."""
 from typing import Literal
 from langchain_core.prompts import ChatPromptTemplate
-from langgraph.graph import StateGraph
-from langgraph.graph.graph import START, END
+from langgraph.graph import END, START, StateGraph
 
 from app.graphs.state import InboxPilotState
 from app.graphs.checkpoint import get_checkpointer
 from app.config import settings
-from app.services.llm_utils import get_chat_model, get_text_content
+from app.services.llm_utils import get_chat_model_for_state, get_text_content
 from app.services.tracing import setup_langsmith
 
 # Setup LangSmith tracing
@@ -62,7 +61,7 @@ def normalize_message(state: InboxPilotState) -> InboxPilotState:
 
 def classify_intent(state: InboxPilotState) -> InboxPilotState:
     """Classify message intent using LLM."""
-    model = get_chat_model(temperature=0)
+    model = get_chat_model_for_state(state, temperature=0)
     
     prompt = ChatPromptTemplate.from_messages([
         ("system", """You are an expert at classifying email messages. 
@@ -140,29 +139,9 @@ def retrieve_memory(state: InboxPilotState) -> InboxPilotState:
         db.close()
 
 
-def route_to_specialist(state: InboxPilotState) -> InboxPilotState:
-    """Route to appropriate specialist subgraph based on intent."""
-    intent = state.get("intent", "personal")
-    
-    # Map intents to specialist agents
-    specialist_map = {
-        "recruiter": "recruiter_agent",
-        "scheduling": "scheduling_agent",
-        "academic": "academic_agent",
-        "support": "support_agent",
-        "billing": "billing_agent"
-    }
-    
-    specialist = specialist_map.get(intent)
-    
-    return {
-        "audit_log": [{"node": "route_to_specialist", "action": "routed", "specialist": specialist or "general"}]
-    }
-
-
 def draft_reply(state: InboxPilotState) -> InboxPilotState:
     """Generate context-aware reply draft."""
-    model = get_chat_model(temperature=0.7)
+    model = get_chat_model_for_state(state, temperature=0.7)
     
     intent = state.get("intent", "personal")
     message = state.get("normalized_message", state.get("raw_message", ""))
@@ -225,7 +204,7 @@ def draft_reply(state: InboxPilotState) -> InboxPilotState:
 
 def score_confidence(state: InboxPilotState) -> InboxPilotState:
     """Score confidence in the draft reply."""
-    model = get_chat_model(temperature=0)
+    model = get_chat_model_for_state(state, temperature=0)
     
     draft = state.get("draft_reply", "")
     message = state.get("normalized_message", state.get("raw_message", ""))
@@ -307,8 +286,8 @@ def risk_gate(state: InboxPilotState) -> InboxPilotState:
 
 def human_review_interrupt(state: InboxPilotState):
     """Interrupt for human review when required."""
-    from langgraph.types import interrupt, Command
-    
+    from langgraph.types import interrupt
+
     if state.get("human_review_required", False):
         # Interrupt and wait for human decision
         decision = interrupt({
@@ -334,7 +313,7 @@ def human_review_interrupt(state: InboxPilotState):
 
 def extract_tasks(state: InboxPilotState) -> InboxPilotState:
     """Extract action items and deadlines."""
-    model = get_chat_model(temperature=0)
+    model = get_chat_model_for_state(state, temperature=0)
     
     message = state.get("normalized_message", state.get("raw_message", ""))
     
@@ -409,13 +388,14 @@ def create_graph():
     from app.graphs.specialists.academic_agent import academic_draft_reply, academic_extract_tasks
     from app.graphs.specialists.support_agent import support_draft_reply, support_extract_tasks
     from app.graphs.specialists.billing_agent import billing_draft_reply, billing_extract_tasks
+    from app.graphs.specialists.orchestration_agent import orchestrate_email
     
     # Add nodes
     builder.add_node("ingest_message", ingest_message)
     builder.add_node("normalize_message", normalize_message)
     builder.add_node("classify_intent", classify_intent)
     builder.add_node("retrieve_memory", retrieve_memory)
-    builder.add_node("route_to_specialist", route_to_specialist)
+    builder.add_node("orchestration_agent", orchestrate_email)
     
     # Specialist nodes
     builder.add_node("recruiter_draft", recruiter_draft_reply)
@@ -444,25 +424,23 @@ def create_graph():
     builder.add_edge("ingest_message", "normalize_message")
     builder.add_edge("normalize_message", "classify_intent")
     builder.add_edge("classify_intent", "retrieve_memory")
-    builder.add_edge("retrieve_memory", "route_to_specialist")
+    builder.add_edge("retrieve_memory", "orchestration_agent")
     
     # Conditional routing based on intent (or force general path for benchmarks)
-    def route_after_classify(state: InboxPilotState) -> str:
-        if state.get("use_specialist") is False:
-            return "generate_draft"
-        intent = state.get("intent", "personal")
+    def route_after_orchestration(state: InboxPilotState) -> str:
+        selected_agent = (state.get("selected_agent") or "").strip().lower()
         specialist_map = {
             "recruiter": "recruiter_draft",
             "scheduling": "scheduling_draft",
             "academic": "academic_draft",
             "support": "support_draft",
-            "billing": "billing_draft"
+            "billing": "billing_draft",
         }
-        return specialist_map.get(intent, "generate_draft")
+        return specialist_map.get(selected_agent, "generate_draft")
     
     builder.add_conditional_edges(
-        "route_to_specialist",
-        route_after_classify,
+        "orchestration_agent",
+        route_after_orchestration,
         {
             "recruiter_draft": "recruiter_draft",
             "scheduling_draft": "scheduling_draft",

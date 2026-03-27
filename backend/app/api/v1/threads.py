@@ -1,16 +1,19 @@
 """Thread endpoints."""
+import logging
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class ThreadStateResponse(BaseModel):
     """Response model for thread state."""
     thread_id: str
-    state: dict = None
+    state: dict | None = None
     status: str
-    error: str = None
+    error: str | None = None
 
 
 @router.get("/threads/{thread_id}", response_model=ThreadStateResponse)
@@ -36,6 +39,10 @@ async def get_thread(thread_id: str):
             error=result.get("error")
         )
     except Exception as e:
+        logger.exception(
+            "Unhandled error in GET /api/v1/threads/{thread_id}",
+            extra={"thread_id": thread_id},
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -79,4 +86,8 @@ async def get_thread_history(thread_id: str):
             "status": "found" if history else "not_found"
         }
     except Exception as e:
+        logger.exception(
+            "Unhandled error in GET /api/v1/threads/{thread_id}/history",
+            extra={"thread_id": thread_id},
+        )
         raise HTTPException(status_code=500, detail=str(e))

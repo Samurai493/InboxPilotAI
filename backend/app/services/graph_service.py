@@ -1,10 +1,13 @@
 """Service for executing LangGraph workflows."""
+import logging
 import uuid
 from typing import Dict, Any
 from langsmith import traceable
 from app.graphs.main_graph import graph
 from app.graphs.state import InboxPilotState
 from app.services.tracing import trace_message_processing
+
+logger = logging.getLogger(__name__)
 
 
 class GraphService:
@@ -16,6 +19,11 @@ class GraphService:
         raw_message: str,
         message_id: str = None,
         use_specialist: bool = True,
+        llm_provider: str | None = None,
+        llm_model: str | None = None,
+        openai_api_key: str | None = None,
+        anthropic_api_key: str | None = None,
+        gemini_api_key: str | None = None,
     ) -> Dict[str, Any]:
         """
         Process a message through the workflow.
@@ -25,6 +33,8 @@ class GraphService:
             raw_message: Raw message text
             message_id: Optional external message ID
             use_specialist: If False, use general draft/extract nodes only (for A/B vs specialists)
+            llm_provider: Optional override for settings.LLM_PROVIDER (openai, anthropic, google_genai)
+            llm_model: Optional override for model id when set
 
         Returns:
             Dictionary with thread_id and initial state
@@ -54,6 +64,21 @@ class GraphService:
             "audit_log": [],
             "use_specialist": use_specialist,
         }
+        if llm_provider is not None:
+            t = llm_provider.strip()
+            initial_state["llm_provider"] = t if t else None
+        if llm_model is not None:
+            t = llm_model.strip()
+            initial_state["llm_model"] = t if t else None
+        if openai_api_key is not None:
+            t = openai_api_key.strip()
+            initial_state["openai_api_key"] = t if t else None
+        if anthropic_api_key is not None:
+            t = anthropic_api_key.strip()
+            initial_state["anthropic_api_key"] = t if t else None
+        if gemini_api_key is not None:
+            t = gemini_api_key.strip()
+            initial_state["gemini_api_key"] = t if t else None
         
         # Configure graph execution
         config = {
@@ -80,6 +105,16 @@ class GraphService:
                 "trace_id": trace_id
             }
         except Exception as e:
+            logger.exception(
+                "Graph execution failed",
+                extra={
+                    "thread_id": thread_id,
+                    "user_id": user_id,
+                    "use_specialist": use_specialist,
+                    "llm_provider": initial_state.get("llm_provider"),
+                    "llm_model": initial_state.get("llm_model"),
+                },
+            )
             return {
                 "thread_id": thread_id,
                 "state": initial_state,
@@ -115,6 +150,7 @@ class GraphService:
                 "status": "found" if state else "not_found"
             }
         except Exception as e:
+            logger.exception("Failed to retrieve thread state", extra={"thread_id": thread_id})
             return {
                 "thread_id": thread_id,
                 "state": None,

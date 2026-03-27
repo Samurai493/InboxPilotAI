@@ -4,7 +4,12 @@
 
 import { getStoredUserId } from '@/lib/user-session'
 import { getGoogleIdToken } from '@/lib/auth-session'
-import { getApiBaseUrl, getDefaultUserIdFromSettings } from '@/lib/app-settings'
+import {
+  getApiBaseUrl,
+  getDefaultUserIdFromSettings,
+  hasStoredAppSettings,
+  loadAppSettings,
+} from '@/lib/app-settings'
 
 export { getApiBaseUrl } from '@/lib/app-settings'
 
@@ -53,6 +58,12 @@ export interface ThreadStateResponse {
 export interface ProcessMessageOptions {
   /** When false, backend uses general draft/extract only (no domain specialists). Default true. */
   use_specialist?: boolean
+  /** Override saved Settings for this request only (e.g. tests). */
+  llm_provider?: string
+  llm_model?: string
+  openai_api_key?: string
+  anthropic_api_key?: string
+  gemini_api_key?: string
 }
 
 /**
@@ -64,17 +75,35 @@ export async function processMessage(
   options?: ProcessMessageOptions,
 ): Promise<ProcessMessageResponse> {
   const resolvedUserId = resolveUserId(userId)
+
+  const body: Record<string, unknown> = {
+    message,
+    ...(resolvedUserId ? { user_id: resolvedUserId } : {}),
+    ...(options?.use_specialist === false ? { use_specialist: false } : {}),
+  }
+
+  if (options?.llm_provider !== undefined) {
+    body.llm_provider = options.llm_provider
+    if (options.llm_model !== undefined) body.llm_model = options.llm_model
+    if (options.openai_api_key?.trim()) body.openai_api_key = options.openai_api_key.trim()
+    if (options.anthropic_api_key?.trim()) body.anthropic_api_key = options.anthropic_api_key.trim()
+    if (options.gemini_api_key?.trim()) body.gemini_api_key = options.gemini_api_key.trim()
+  } else if (hasStoredAppSettings()) {
+    const s = loadAppSettings()
+    body.llm_provider = s.llmProvider?.trim() || 'openai'
+    if (s.llmModel?.trim()) body.llm_model = s.llmModel.trim()
+    if (s.openaiApiKey?.trim()) body.openai_api_key = s.openaiApiKey.trim()
+    if (s.anthropicApiKey?.trim()) body.anthropic_api_key = s.anthropicApiKey.trim()
+    if (s.geminiApiKey?.trim()) body.gemini_api_key = s.geminiApiKey.trim()
+  }
+
   const response = await fetch(`${getApiBaseUrl()}/api/v1/process`, {
     method: 'POST',
     headers: {
       ...authHeaders(),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      message,
-      ...(resolvedUserId ? { user_id: resolvedUserId } : {}),
-      ...(options?.use_specialist === false ? { use_specialist: false } : {}),
-    }),
+    body: JSON.stringify(body),
   })
 
   if (!response.ok) {
