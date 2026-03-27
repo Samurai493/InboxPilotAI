@@ -8,6 +8,7 @@ from app.graphs.checkpoint import get_checkpointer
 from app.config import settings
 from app.services.llm_utils import get_chat_model_for_state, get_text_content
 from app.services.tracing import setup_langsmith
+from app.graphs.kg_email_insights import build_draft_user_message, synthesize_email_insights
 
 # Setup LangSmith tracing
 setup_langsmith()
@@ -111,6 +112,7 @@ def classify_intent(state: InboxPilotState) -> InboxPilotState:
 def retrieve_memory(state: InboxPilotState) -> InboxPilotState:
     """Retrieve user preferences and context."""
     from app.database import SessionLocal
+    from app.services.knowledge_graph_service import KnowledgeGraphService
     from app.services.memory_service import MemoryService
     
     user_id = state.get("user_id")
@@ -123,6 +125,7 @@ def retrieve_memory(state: InboxPilotState) -> InboxPilotState:
     db = SessionLocal()
     try:
         preferences = MemoryService.get_user_preferences(db, user_id)
+        kg_context = KnowledgeGraphService.get_recent_context(db, user_id=user_id)
         memory_hits = []
         
         if preferences:
@@ -130,10 +133,50 @@ def retrieve_memory(state: InboxPilotState) -> InboxPilotState:
                 "type": "user_preferences",
                 "data": preferences
             })
+        if kg_context.get("entities") or kg_context.get("relations"):
+            memory_hits.append(
+                {
+                    "type": "knowledge_graph",
+                    "data": kg_context,
+                }
+            )
         
         return {
             "memory_hits": memory_hits,
+            "knowledge_hits": kg_context,
             "audit_log": [{"node": "retrieve_memory", "action": "memory_retrieved", "count": len(memory_hits)}]
+        }
+    finally:
+        db.close()
+
+
+def persist_knowledge_memory(state: InboxPilotState) -> InboxPilotState:
+    """Persist extracted entities/relations as durable knowledge graph memory."""
+    from app.database import SessionLocal
+    from app.services.knowledge_graph_service import KnowledgeGraphService
+
+    user_id = state.get("user_id")
+    if not user_id:
+        return {
+            "audit_log": [{"node": "persist_knowledge_memory", "action": "skipped_no_user"}]
+        }
+
+    db = SessionLocal()
+    try:
+        persisted = KnowledgeGraphService.persist_from_state(db, state)
+        return {
+            "knowledge_written": {
+                "entities": persisted.get("written_entities", []),
+                "relations": persisted.get("written_relations", []),
+            },
+            "audit_log": [
+                {
+                    "node": "persist_knowledge_memory",
+                    "action": "persisted",
+                    "entities": persisted.get("persisted_entities", 0),
+                    "relations": persisted.get("persisted_relations", 0),
+                }
+            ],
         }
     finally:
         db.close()
@@ -144,7 +187,6 @@ def draft_reply(state: InboxPilotState) -> InboxPilotState:
     model = get_chat_model_for_state(state, temperature=0.7)
     
     intent = state.get("intent", "personal")
-    message = state.get("normalized_message", state.get("raw_message", ""))
     
     # Get user preferences from memory
     memory_hits = state.get("memory_hits", [])
@@ -182,13 +224,14 @@ def draft_reply(state: InboxPilotState) -> InboxPilotState:
     if tone and tone != "professional":
         system_prompt += f"\n\nUse a {tone} tone in your reply."
     
+    user_body = build_draft_user_message(state, "Draft a reply:")
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
-        ("user", "Original message:\n{message}\n\nDraft a reply:")
+        ("user", "{user_body}"),
     ])
-    
+
     chain = prompt | model
-    response = chain.invoke({"message": message})
+    response = chain.invoke({"user_body": user_body})
     
     draft = get_text_content(response).strip()
     
@@ -395,6 +438,7 @@ def create_graph():
     builder.add_node("normalize_message", normalize_message)
     builder.add_node("classify_intent", classify_intent)
     builder.add_node("retrieve_memory", retrieve_memory)
+    builder.add_node("synthesize_email_insights", synthesize_email_insights)
     builder.add_node("orchestration_agent", orchestrate_email)
     
     # Specialist nodes
@@ -414,6 +458,7 @@ def create_graph():
     builder.add_node("extract_tasks", extract_tasks)
     
     # Quality and review nodes
+    builder.add_node("persist_knowledge_memory", persist_knowledge_memory)
     builder.add_node("score_confidence", score_confidence)
     builder.add_node("risk_gate", risk_gate)
     builder.add_node("human_review_interrupt", human_review_interrupt)
@@ -424,7 +469,8 @@ def create_graph():
     builder.add_edge("ingest_message", "normalize_message")
     builder.add_edge("normalize_message", "classify_intent")
     builder.add_edge("classify_intent", "retrieve_memory")
-    builder.add_edge("retrieve_memory", "orchestration_agent")
+    builder.add_edge("retrieve_memory", "synthesize_email_insights")
+    builder.add_edge("synthesize_email_insights", "orchestration_agent")
     
     # Conditional routing based on intent (or force general path for benchmarks)
     def route_after_orchestration(state: InboxPilotState) -> str:
@@ -451,21 +497,22 @@ def create_graph():
         }
     )
     
-    # Specialist draft -> specialist extract -> score_confidence
+    # Specialist draft -> specialist extract -> persist knowledge -> score_confidence
     builder.add_edge("recruiter_draft", "recruiter_extract")
-    builder.add_edge("recruiter_extract", "score_confidence")
+    builder.add_edge("recruiter_extract", "persist_knowledge_memory")
     builder.add_edge("scheduling_draft", "scheduling_extract")
-    builder.add_edge("scheduling_extract", "score_confidence")
+    builder.add_edge("scheduling_extract", "persist_knowledge_memory")
     builder.add_edge("academic_draft", "academic_extract")
-    builder.add_edge("academic_extract", "score_confidence")
+    builder.add_edge("academic_extract", "persist_knowledge_memory")
     builder.add_edge("support_draft", "support_extract")
-    builder.add_edge("support_extract", "score_confidence")
+    builder.add_edge("support_extract", "persist_knowledge_memory")
     builder.add_edge("billing_draft", "billing_extract")
-    builder.add_edge("billing_extract", "score_confidence")
+    builder.add_edge("billing_extract", "persist_knowledge_memory")
     
-    # General draft -> extract -> score_confidence
+    # General draft -> extract -> persist knowledge -> score_confidence
     builder.add_edge("generate_draft", "extract_tasks")
-    builder.add_edge("extract_tasks", "score_confidence")
+    builder.add_edge("extract_tasks", "persist_knowledge_memory")
+    builder.add_edge("persist_knowledge_memory", "score_confidence")
     
     # Continue with quality and review
     builder.add_edge("score_confidence", "risk_gate")

@@ -12,7 +12,8 @@ import {
   getGmailStatus,
   getPublicAuthConfig,
   getGmailMessage,
-  listGmailMessages,
+  getLatestThreadForGmailMessage,
+  listGmailMessagesPage,
   processMessage,
 } from '@/lib/api'
 import type { GmailMessageResponse } from '@/lib/api'
@@ -20,6 +21,7 @@ import type { GmailStatusResponse } from '@/lib/api'
 import { clearGoogleIdToken, getGoogleIdToken, setGoogleIdToken } from '@/lib/auth-session'
 import { setStoredUserId } from '@/lib/user-session'
 import { getGoogleClientIdForGis } from '@/lib/app-settings'
+import { cacheThreadState } from '@/lib/thread-state-cache'
 
 declare global {
   interface Window {
@@ -39,6 +41,9 @@ export default function Home() {
   const [gmailMessages, setGmailMessages] = useState<GmailMessageResponse[]>([])
   const [gmailMessagesBusy, setGmailMessagesBusy] = useState(false)
   const [gmailMessagesError, setGmailMessagesError] = useState<string | null>(null)
+  const [gmailPageIndex, setGmailPageIndex] = useState(0)
+  const [gmailPageTokens, setGmailPageTokens] = useState<Array<string | null>>([null])
+  const [gmailNextPageToken, setGmailNextPageToken] = useState<string | null>(null)
   const [selectedGmailMessageId, setSelectedGmailMessageId] = useState<string | null>(null)
   const [selectedGmailMessage, setSelectedGmailMessage] = useState<GmailMessageResponse | null>(null)
   const [selectedGmailMessageBusy, setSelectedGmailMessageBusy] = useState(false)
@@ -54,6 +59,7 @@ export default function Home() {
 
   const [workflowBusy, setWorkflowBusy] = useState(false)
   const [workflowError, setWorkflowError] = useState<string | null>(null)
+  const [savedThreadIdForMessage, setSavedThreadIdForMessage] = useState<string | null>(null)
 
   const refreshGmail = useCallback(async (uid: string): Promise<GmailStatusResponse> => {
     const status = await getGmailStatus(uid)
@@ -66,9 +72,18 @@ export default function Home() {
     async (uid: string, messageId: string) => {
       setSelectedGmailMessageBusy(true)
       setSelectedGmailMessageError(null)
+      setSavedThreadIdForMessage(null)
       try {
         const msg = await getGmailMessage(messageId, uid)
         setSelectedGmailMessage(msg)
+        try {
+          const latest = await getLatestThreadForGmailMessage(messageId, uid)
+          setSavedThreadIdForMessage(latest.thread_id)
+        } catch (lookupErr) {
+          if (lookupErr instanceof Error && lookupErr.message !== 'NOT_FOUND') {
+            console.warn(lookupErr.message)
+          }
+        }
       } catch (e) {
         setSelectedGmailMessage(null)
         setSelectedGmailMessageError(e instanceof Error ? e.message : 'Failed to load message')
@@ -79,23 +94,33 @@ export default function Home() {
     [],
   )
 
-  const refreshGmailMessages = useCallback(
-    async (uid: string) => {
+  const loadGmailMessagesPageAt = useCallback(
+    async (
+      uid: string,
+      pageToken: string | null,
+      pageIndex: number,
+      tokenHistory: Array<string | null>,
+    ) => {
       setGmailMessagesBusy(true)
       setGmailMessagesError(null)
       setSelectedGmailMessage(null)
       setSelectedGmailMessageId(null)
       setSelectedGmailMessageError(null)
+      setSavedThreadIdForMessage(null)
       try {
-        const msgs = await listGmailMessages(uid, 100)
-        setGmailMessages(msgs)
-        const first = msgs[0]
+        const page = await listGmailMessagesPage(uid, 100, pageToken)
+        setGmailMessages(page.messages)
+        setGmailNextPageToken(page.next_page_token ?? null)
+        setGmailPageIndex(pageIndex)
+        setGmailPageTokens(tokenHistory)
+        const first = page.messages[0]
         if (first) {
           setSelectedGmailMessageId(first.id)
           await loadGmailMessageDetail(uid, first.id)
         }
       } catch (e) {
         setGmailMessages([])
+        setGmailNextPageToken(null)
         setGmailMessagesError(e instanceof Error ? e.message : 'Failed to load messages')
       } finally {
         setGmailMessagesBusy(false)
@@ -137,8 +162,8 @@ export default function Home() {
 
   useEffect(() => {
     if (!userId || !gmailConnected) return
-    refreshGmailMessages(userId).catch(() => {})
-  }, [userId, gmailConnected, refreshGmailMessages])
+    loadGmailMessagesPageAt(userId, null, 0, [null]).catch(() => {})
+  }, [userId, gmailConnected, loadGmailMessagesPageAt])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -159,7 +184,7 @@ export default function Home() {
       try {
         const status = await refreshGmail(userId)
         if (status.connected) {
-          await refreshGmailMessages(userId)
+          await loadGmailMessagesPageAt(userId, null, 0, [null])
           return
         }
       } catch {
@@ -178,7 +203,7 @@ export default function Home() {
     return () => {
       cancelled = true
     }
-  }, [gmailConnectedFromQuery, refreshGmail, refreshGmailMessages, userId])
+  }, [gmailConnectedFromQuery, refreshGmail, loadGmailMessagesPageAt, userId])
 
   const handleConnectGmail = async () => {
     if (!userId) return
@@ -258,12 +283,31 @@ export default function Home() {
     setGmailEmail(null)
     setGmailMessages([])
     setGmailMessagesError(null)
+    setGmailPageIndex(0)
+    setGmailPageTokens([null])
+    setGmailNextPageToken(null)
     setSelectedGmailMessageId(null)
     setSelectedGmailMessage(null)
     setSelectedGmailMessageError(null)
     setComposeOpen(false)
     setWorkflowError(null)
     setWorkflowBusy(false)
+    setSavedThreadIdForMessage(null)
+  }
+
+  const handleNextGmailPage = async () => {
+    if (!userId || !gmailNextPageToken || gmailMessagesBusy) return
+    const nextIndex = gmailPageIndex + 1
+    const nextHistory = [...gmailPageTokens.slice(0, nextIndex), gmailNextPageToken]
+    await loadGmailMessagesPageAt(userId, gmailNextPageToken, nextIndex, nextHistory)
+  }
+
+  const handlePrevGmailPage = async () => {
+    if (!userId || gmailPageIndex === 0 || gmailMessagesBusy) return
+    const prevIndex = gmailPageIndex - 1
+    const prevToken = gmailPageTokens[prevIndex] ?? null
+    const prevHistory = gmailPageTokens.slice(0, prevIndex + 1)
+    await loadGmailMessagesPageAt(userId, prevToken, prevIndex, prevHistory)
   }
 
   const handleRunWorkflow = useCallback(async () => {
@@ -278,10 +322,16 @@ export default function Home() {
         '',
         selectedGmailMessage.body || '',
       ].join('\n')
-      const result = await processMessage(raw, userId)
+      const result = await processMessage(raw, userId, {
+        gmail_message_id: selectedGmailMessage.id,
+      })
       if (result.status === 'failed' && result.error) {
         throw new Error(result.error)
       }
+      if (result.state && typeof result.state === 'object') {
+        cacheThreadState(result.thread_id, result.state as object)
+      }
+      setSavedThreadIdForMessage(result.thread_id)
       router.push(`/results/${result.thread_id}`)
     } catch (e) {
       setWorkflowError(e instanceof Error ? e.message : 'Workflow failed')
@@ -337,6 +387,12 @@ export default function Home() {
             </div>
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
               <Link
+                href="/history"
+                className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                Workflow history
+              </Link>
+              <Link
                 href="/settings"
                 className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
               >
@@ -346,7 +402,7 @@ export default function Home() {
                 type="button"
                 onClick={() => {
                   if (!userId) return
-                  void refreshGmailMessages(userId)
+                  void loadGmailMessagesPageAt(userId, null, 0, [null])
                 }}
                 disabled={gmailMessagesBusy}
                 className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:bg-gray-100"
@@ -375,8 +431,32 @@ export default function Home() {
 
           <div className="flex min-h-0 min-w-0 flex-1">
             <aside className="flex w-full max-w-[22rem] shrink-0 flex-col border-r border-gray-200 bg-white min-h-0">
-              <div className="border-b border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700">
-                Inbox (last 100)
+              <div className="flex items-center justify-between gap-2 border-b border-gray-200 px-3 py-2">
+                <div className="text-xs font-semibold text-gray-700">
+                  Inbox ({gmailPageIndex * 100 + 1}-{gmailPageIndex * 100 + gmailMessages.length})
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => void handlePrevGmailPage()}
+                    disabled={gmailMessagesBusy || gmailPageIndex === 0}
+                    className="rounded border border-gray-300 px-2 py-0.5 text-xs text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label="Previous 100 emails"
+                    title="Previous 100 emails"
+                  >
+                    ←
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleNextGmailPage()}
+                    disabled={gmailMessagesBusy || !gmailNextPageToken}
+                    className="rounded border border-gray-300 px-2 py-0.5 text-xs text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label="Next 100 emails"
+                    title="Next 100 emails"
+                  >
+                    →
+                  </button>
+                </div>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto p-2">
                 {gmailMessagesError && (
@@ -435,18 +515,28 @@ export default function Home() {
                   {workflowError}
                 </p>
               ) : null}
-              <div className="flex shrink-0 items-center justify-between gap-3 border-b border-gray-100 bg-white px-6 py-3">
+              <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-gray-100 bg-white px-6 py-3">
                 <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                   Reader
                 </span>
-                <button
-                  type="button"
-                  disabled={!selectedGmailMessage || workflowBusy || selectedGmailMessageBusy}
-                  onClick={() => void handleRunWorkflow()}
-                  className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:bg-gray-300"
-                >
-                  {workflowBusy ? 'Running workflow…' : 'Run InboxPilot workflow'}
-                </button>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {savedThreadIdForMessage ? (
+                    <Link
+                      href={`/results/${encodeURIComponent(savedThreadIdForMessage)}`}
+                      className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
+                    >
+                      View saved results
+                    </Link>
+                  ) : null}
+                  <button
+                    type="button"
+                    disabled={!selectedGmailMessage || workflowBusy || selectedGmailMessageBusy}
+                    onClick={() => void handleRunWorkflow()}
+                    className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+                  >
+                    {workflowBusy ? 'Running workflow…' : 'Run InboxPilot workflow'}
+                  </button>
+                </div>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 lg:px-12 lg:py-10">
                 {selectedGmailMessage && !selectedGmailMessageBusy ? (

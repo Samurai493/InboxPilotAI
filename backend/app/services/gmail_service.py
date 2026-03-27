@@ -80,15 +80,19 @@ class GmailService:
         except HttpError as error:
             raise Exception(f"An error occurred: {error}")
 
-    def list_message_summaries(self, max_results: int = 10) -> List[Dict[str, Any]]:
-        """List inbox messages with subject, from, date, snippet (no body text)."""
+    def list_message_summaries_page(
+        self,
+        max_results: int = 10,
+        page_token: str | None = None,
+    ) -> Dict[str, Any]:
+        """List one inbox page with summaries and pagination token."""
         if not self.service:
             raise ValueError("Gmail service not initialized. Credentials required.")
         try:
-            results = self.service.users().messages().list(
-                userId="me",
-                maxResults=max_results,
-            ).execute()
+            kwargs: Dict[str, Any] = {"userId": "me", "maxResults": max_results}
+            if page_token:
+                kwargs["pageToken"] = page_token
+            results = self.service.users().messages().list(**kwargs).execute()
             messages = results.get("messages", [])
             out: List[Dict[str, Any]] = []
             for m in messages:
@@ -115,9 +119,16 @@ class GmailService:
                         "snippet": meta.get("snippet", ""),
                     }
                 )
-            return out
+            return {
+                "messages": out,
+                "next_page_token": results.get("nextPageToken"),
+            }
         except HttpError as error:
             raise Exception(f"An error occurred: {error}")
+
+    def list_message_summaries(self, max_results: int = 10) -> List[Dict[str, Any]]:
+        """List inbox messages with subject, from, date, snippet (no body text)."""
+        return self.list_message_summaries_page(max_results=max_results).get("messages", [])
 
     def _extract_body(self, payload: Dict[str, Any]) -> str:
         """Extract message body from payload."""

@@ -53,11 +53,36 @@ export interface ThreadStateResponse {
   state: any
   status: string
   error?: string
+  /** Present when state was loaded from DB snapshot (checkpointer empty). */
+  source?: string | null
+}
+
+export interface WorkflowThreadSummary {
+  id: string
+  thread_id: string
+  status: string
+  gmail_message_id?: string | null
+  created_at?: string | null
+  intent?: string | null
+  subject?: string | null
+  selected_agent?: string | null
+}
+
+export interface WorkflowThreadListResponse {
+  threads: WorkflowThreadSummary[]
+}
+
+export interface LatestThreadForMessageResponse {
+  thread_id: string
+  status: string
+  created_at?: string | null
 }
 
 export interface ProcessMessageOptions {
   /** When false, backend uses general draft/extract only (no domain specialists). Default true. */
   use_specialist?: boolean
+  /** Gmail message id for linking persisted runs to an inbox email. */
+  gmail_message_id?: string | null
   /** Override saved Settings for this request only (e.g. tests). */
   llm_provider?: string
   llm_model?: string
@@ -80,6 +105,7 @@ export async function processMessage(
     message,
     ...(resolvedUserId ? { user_id: resolvedUserId } : {}),
     ...(options?.use_specialist === false ? { use_specialist: false } : {}),
+    ...(options?.gmail_message_id ? { gmail_message_id: options.gmail_message_id } : {}),
   }
 
   if (options?.llm_provider !== undefined) {
@@ -122,10 +148,19 @@ export async function processMessage(
 }
 
 /**
- * Get thread state
+ * Get thread state (checkpointer or database snapshot).
  */
-export async function getThreadState(threadId: string): Promise<ThreadStateResponse> {
-  const response = await fetch(`${getApiBaseUrl()}/api/v1/threads/${threadId}`, {
+export async function getThreadState(
+  threadId: string,
+  userId?: string,
+): Promise<ThreadStateResponse> {
+  const url = new URL(
+    `${getApiBaseUrl()}/api/v1/threads/${encodeURIComponent(threadId)}`,
+  )
+  const uid = resolveUserId(userId)
+  if (uid) url.searchParams.set('user_id', uid)
+
+  const response = await fetch(url.toString(), {
     method: 'GET',
     headers: authHeaders({
       'Content-Type': 'application/json',
@@ -134,9 +169,62 @@ export async function getThreadState(threadId: string): Promise<ThreadStateRespo
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Unknown error' }))
-    throw new Error(error.error || `HTTP error! status: ${response.status}`)
+    const detail = (error as { detail?: unknown }).detail
+    const msg =
+      typeof detail === 'string'
+        ? detail
+        : (error as { error?: string }).error
+    throw new Error(msg || `HTTP error! status: ${response.status}`)
   }
 
+  return response.json()
+}
+
+export async function listWorkflowThreads(
+  userId?: string,
+  limit: number = 50,
+): Promise<WorkflowThreadListResponse> {
+  const url = new URL(`${getApiBaseUrl()}/api/v1/threads`)
+  url.searchParams.set('limit', String(limit))
+  const uid = resolveUserId(userId)
+  if (uid) url.searchParams.set('user_id', uid)
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: authHeaders({ Accept: 'application/json' }),
+  })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}))
+    const detail = (error as { detail?: unknown }).detail
+    const msg = typeof detail === 'string' ? detail : `HTTP error! status: ${response.status}`
+    throw new Error(msg)
+  }
+  return response.json()
+}
+
+export async function getLatestThreadForGmailMessage(
+  gmailMessageId: string,
+  userId?: string,
+): Promise<LatestThreadForMessageResponse> {
+  const url = new URL(
+    `${getApiBaseUrl()}/api/v1/threads/by-gmail/${encodeURIComponent(gmailMessageId)}`,
+  )
+  const uid = resolveUserId(userId)
+  if (uid) url.searchParams.set('user_id', uid)
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: authHeaders({ Accept: 'application/json' }),
+  })
+  if (response.status === 404) {
+    throw new Error('NOT_FOUND')
+  }
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}))
+    const detail = (error as { detail?: unknown }).detail
+    const msg = typeof detail === 'string' ? detail : `HTTP error! status: ${response.status}`
+    throw new Error(msg)
+  }
   return response.json()
 }
 
@@ -156,6 +244,11 @@ export interface GmailMessageResponse {
   date: string
   body: string
   snippet: string
+}
+
+export interface GmailMessagesPageResponse {
+  messages: GmailMessageResponse[]
+  next_page_token?: string | null
 }
 
 export async function getGmailStatus(userId: string): Promise<GmailStatusResponse> {
@@ -205,6 +298,30 @@ export async function listGmailMessages(
     headers: authHeaders({ Accept: 'application/json' }),
   })
 
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+    throw new Error(
+      (typeof error.detail === 'string' ? error.detail : error.detail?.[0]?.msg) ||
+        `HTTP error! status: ${response.status}`,
+    )
+  }
+  return response.json()
+}
+
+export async function listGmailMessagesPage(
+  userId?: string,
+  maxResults: number = 100,
+  pageToken?: string | null,
+): Promise<GmailMessagesPageResponse> {
+  const url = new URL(`${getApiBaseUrl()}/api/v1/gmail/messages/page`)
+  url.searchParams.set('max_results', String(maxResults))
+  if (userId) url.searchParams.set('user_id', userId)
+  if (pageToken) url.searchParams.set('page_token', pageToken)
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: authHeaders({ Accept: 'application/json' }),
+  })
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
     throw new Error(

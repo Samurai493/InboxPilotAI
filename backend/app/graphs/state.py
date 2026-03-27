@@ -1,5 +1,6 @@
 """Shared state schema for InboxPilot AI workflow."""
-from typing import TypedDict, Optional, List, Dict, Any, NotRequired
+from operator import add
+from typing import Annotated, TypedDict, Optional, List, Dict, Any, NotRequired
 from datetime import datetime
 
 
@@ -40,6 +41,13 @@ class InboxPilotState(TypedDict):
     
     # Memory and context
     memory_hits: Optional[List[Dict[str, Any]]]
+    knowledge_hits: NotRequired[Dict[str, Any] | None]
+    # Entities/relations written to persistent KG during this run (after persist_knowledge_memory)
+    knowledge_written: NotRequired[Dict[str, Any] | None]
+    # KG + LLM synthesis (after retrieve_memory)
+    email_context: NotRequired[str | None]
+    email_summary: NotRequired[str | None]
+    follow_ups: NotRequired[List[str] | None]
     
     # Outputs
     draft_reply: Optional[str]
@@ -54,4 +62,6 @@ class InboxPilotState(TypedDict):
     
     # Observability
     trace_id: Optional[str]
-    audit_log: Optional[List[Dict[str, Any]]]
+    # Filled after graph.invoke (see GraphService) with totals + per-call breakdown
+    llm_token_usage: NotRequired[Dict[str, Any] | None]
+    audit_log: Annotated[List[Dict[str, Any]], add]

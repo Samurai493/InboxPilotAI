@@ -1,6 +1,7 @@
 """Support specialist agent."""
 from langchain_core.prompts import ChatPromptTemplate
 from app.graphs.state import InboxPilotState
+from app.graphs.kg_email_insights import build_draft_user_message
 from app.services.llm_utils import get_chat_model_for_state, get_text_content
 
 
@@ -8,8 +9,7 @@ def support_draft_reply(state: InboxPilotState) -> InboxPilotState:
     """Specialist reply drafting for support messages."""
     model = get_chat_model_for_state(state, temperature=0.7)
 
-    message = state.get("normalized_message", state.get("raw_message", ""))
-
+    user_body = build_draft_user_message(state, "Draft a helpful support reply:")
     prompt = ChatPromptTemplate.from_messages([
         ("system", """You are drafting a reply to a support inquiry.
         Guidelines:
@@ -19,11 +19,11 @@ def support_draft_reply(state: InboxPilotState) -> InboxPilotState:
         - Provide step-by-step solutions if applicable
         - Be patient and professional
         - Use a friendly, helpful tone"""),
-        ("user", f"Original message:\n{message}\n\nDraft a helpful support reply:")
+        ("user", "{user_body}"),
     ])
 
     chain = prompt | model
-    response = chain.invoke({})
+    response = chain.invoke({"user_body": user_body})
 
     return {
         "draft_reply": get_text_content(response).strip(),

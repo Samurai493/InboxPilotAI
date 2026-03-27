@@ -3,12 +3,37 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { getThreadState } from '@/lib/api'
+import { loadCachedThreadState } from '@/lib/thread-state-cache'
+import { WorkflowKnowledgeViz } from '@/components/WorkflowKnowledgeViz'
+import type { KgEntity, KgRelation } from '@/components/WorkflowKnowledgeViz'
+
+interface LlmTokenCall {
+  run_id?: string | null
+  name?: string | null
+  tags?: unknown
+  model?: string | null
+  input_tokens?: number
+  output_tokens?: number
+  total_tokens?: number
+}
+
+interface LlmTokenUsage {
+  totals?: {
+    input_tokens?: number
+    output_tokens?: number
+    total_tokens?: number
+    llm_calls?: number
+  }
+  calls?: LlmTokenCall[]
+}
 
 interface ThreadState {
   thread_id: string
   state: {
     intent?: string
     urgency_score?: string
+    selected_agent?: string
+    orchestration_rationale?: string
     draft_reply?: string
     extracted_tasks?: Array<{
       description: string
@@ -21,7 +46,14 @@ interface ThreadState {
       subject?: string
     }
     final_status?: string
-  }
+    audit_log?: Array<Record<string, unknown>>
+    knowledge_hits?: { entities?: KgEntity[]; relations?: KgRelation[] }
+    knowledge_written?: { entities?: KgEntity[]; relations?: KgRelation[] }
+    email_context?: string | null
+    email_summary?: string | null
+    follow_ups?: string[] | null
+    llm_token_usage?: LlmTokenUsage | null
+  } | null
   status: string
 }
 
@@ -31,12 +63,32 @@ export default function ResultsPage() {
   const [threadState, setThreadState] = useState<ThreadState | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [stateLoadSource, setStateLoadSource] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchThread = async () => {
       try {
         const result = await getThreadState(threadId)
-        setThreadState(result)
+        if (result.state) {
+          setStateLoadSource(result.source ?? null)
+          setThreadState({
+            thread_id: result.thread_id,
+            state: result.state as ThreadState['state'],
+            status: result.status,
+          })
+        } else {
+          setStateLoadSource(null)
+          const cached = loadCachedThreadState(threadId)
+          setThreadState(
+            cached
+              ? { thread_id: threadId, state: cached as ThreadState['state'], status: 'found' }
+              : {
+                  thread_id: result.thread_id,
+                  state: null,
+                  status: result.status,
+                },
+          )
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load thread')
       } finally {
@@ -75,6 +127,23 @@ export default function ResultsPage() {
     )
   }
 
+  if (!threadState.state) {
+    return (
+      <main className="min-h-screen bg-gray-50 py-12">
+        <div className="container mx-auto px-4 max-w-4xl">
+          <div className="bg-white rounded-lg shadow-lg p-8">
+            <p className="text-gray-700">
+              No workflow state found for this thread. The server may have restarted (in-memory
+              checkpointer), or this id is invalid. If you enabled database persistence, ensure the API
+              can reach Postgres and that this thread was saved after a run.
+            </p>
+            <p className="mt-2 text-sm text-gray-500">Thread ID: {threadId}</p>
+          </div>
+        </div>
+      </main>
+    )
+  }
+
   const state = threadState.state
 
   return (
@@ -84,7 +153,93 @@ export default function ResultsPage() {
         <div className="bg-white rounded-lg shadow-lg p-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-4">Processing Results</h1>
           <p className="text-gray-600">Thread ID: {threadId}</p>
+          {stateLoadSource === 'database' ? (
+            <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+              Loaded from saved history (database snapshot). No additional LLM calls were made.
+            </p>
+          ) : null}
         </div>
+
+        {state.llm_token_usage?.totals ? (
+          <div className="bg-white rounded-lg shadow-lg p-8">
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">LLM token usage (this run)</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              Summed across every chat-model call in the workflow (classification, synthesis, routing,
+              draft, extract, scoring, etc.). Provider-reported counts when available.
+            </p>
+            {(() => {
+              const t = state.llm_token_usage!.totals!
+              const calls = state.llm_token_usage?.calls?.length ?? 0
+              const hasCounts =
+                (t.input_tokens ?? 0) > 0 || (t.output_tokens ?? 0) > 0 || (t.total_tokens ?? 0) > 0
+              return (
+                <>
+                  <div className="flex flex-wrap gap-4">
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                      <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                        Input tokens
+                      </div>
+                      <div className="text-2xl font-semibold text-gray-900">{t.input_tokens ?? 0}</div>
+                    </div>
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                      <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                        Output tokens
+                      </div>
+                      <div className="text-2xl font-semibold text-gray-900">{t.output_tokens ?? 0}</div>
+                    </div>
+                    <div className="rounded-lg border border-primary-200 bg-primary-50 px-4 py-3">
+                      <div className="text-xs font-medium uppercase tracking-wide text-primary-800">
+                        Total tokens
+                      </div>
+                      <div className="text-2xl font-semibold text-primary-900">
+                        {t.total_tokens ?? (t.input_tokens ?? 0) + (t.output_tokens ?? 0)}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                      <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                        LLM calls counted
+                      </div>
+                      <div className="text-2xl font-semibold text-gray-900">
+                        {t.llm_calls ?? calls}
+                      </div>
+                    </div>
+                  </div>
+                  {!hasCounts && calls === 0 ? (
+                    <p className="mt-4 text-sm text-amber-800">
+                      No usage metadata was returned by the provider for this run. If you expected
+                      counts, check your LangChain / provider versions and tracing settings.
+                    </p>
+                  ) : null}
+                  {state.llm_token_usage?.calls && state.llm_token_usage.calls.length > 0 ? (
+                    <details className="mt-6">
+                      <summary className="cursor-pointer text-sm font-semibold text-gray-800">
+                        Per-call breakdown
+                      </summary>
+                      <ul className="mt-3 space-y-2 text-sm text-gray-700">
+                        {state.llm_token_usage.calls.map((c, i) => (
+                          <li
+                            key={c.run_id ?? i}
+                            className="rounded border border-gray-100 bg-gray-50/80 px-3 py-2"
+                          >
+                            <span className="font-medium">
+                              #{i + 1}
+                              {c.model ? ` · ${c.model}` : ''}
+                              {c.name ? ` · ${String(c.name)}` : ''}
+                            </span>
+                            <span className="ml-2 text-gray-600">
+                              in {c.input_tokens ?? 0} / out {c.output_tokens ?? 0} / total{' '}
+                              {c.total_tokens ?? (c.input_tokens ?? 0) + (c.output_tokens ?? 0)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  ) : null}
+                </>
+              )
+            })()}
+          </div>
+        ) : null}
 
         {/* Classification */}
         {state.intent && (
@@ -97,6 +252,20 @@ export default function ResultsPage() {
                   {state.intent}
                 </span>
               </div>
+              {state.selected_agent && (
+                <div>
+                  <span className="font-medium text-gray-700">Orchestration agent: </span>
+                  <span className="px-3 py-1 bg-slate-100 text-slate-800 rounded-full text-sm font-semibold">
+                    {state.selected_agent}
+                  </span>
+                </div>
+              )}
+              {state.orchestration_rationale && (
+                <p className="text-sm text-gray-600 mt-2">
+                  <span className="font-medium text-gray-700">Rationale: </span>
+                  {state.orchestration_rationale}
+                </p>
+              )}
               {state.urgency_score && (
                 <div>
                   <span className="font-medium text-gray-700">Urgency: </span>
@@ -120,6 +289,45 @@ export default function ResultsPage() {
             </div>
           </div>
         )}
+
+        {/* KG-backed synthesis (feeds drafts) */}
+        {(state.email_summary || state.email_context || (state.follow_ups && state.follow_ups.length > 0)) && (
+          <div className="bg-white rounded-lg shadow-lg p-8">
+            <h2 className="text-2xl font-semibold text-gray-900 mb-4">Insights (memory + graph)</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              Produced after loading preferences and recent knowledge-graph context; used in draft prompts.
+            </p>
+            {state.email_summary && (
+              <div className="mb-4">
+                <h3 className="text-sm font-semibold text-gray-800">Summary</h3>
+                <p className="mt-1 text-gray-700">{state.email_summary}</p>
+              </div>
+            )}
+            {state.email_context && (
+              <div className="mb-4">
+                <h3 className="text-sm font-semibold text-gray-800">Context</h3>
+                <p className="mt-1 text-gray-700">{state.email_context}</p>
+              </div>
+            )}
+            {state.follow_ups && state.follow_ups.length > 0 && (
+              <div>
+                <h3 className="text-sm font-semibold text-gray-800">Suggested follow-ups</h3>
+                <ul className="mt-2 list-disc pl-5 text-gray-700 space-y-1">
+                  {state.follow_ups.map((item, i) => (
+                    <li key={i}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+
+        <WorkflowKnowledgeViz
+          auditLog={state.audit_log}
+          knowledgeHits={state.knowledge_hits ?? null}
+          knowledgeWritten={state.knowledge_written ?? null}
+          selectedAgent={state.selected_agent ?? null}
+        />
 
         {/* Draft Reply */}
         {state.draft_reply && (
@@ -169,7 +377,13 @@ export default function ResultsPage() {
 
         {/* Actions */}
         <div className="bg-white rounded-lg shadow-lg p-8">
-          <div className="flex gap-4">
+          <div className="flex flex-wrap gap-4">
+            <a
+              href="/"
+              className="border border-gray-300 text-gray-800 px-6 py-3 rounded-lg font-semibold hover:bg-gray-50 transition-colors"
+            >
+              Back to inbox
+            </a>
             <a
               href="/inbox"
               className="bg-primary-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-primary-700 transition-colors"

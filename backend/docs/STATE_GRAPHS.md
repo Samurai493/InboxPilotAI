@@ -15,32 +15,34 @@ flowchart TD
     ingest_message --> normalize_message
     normalize_message --> classify_intent
     classify_intent --> retrieve_memory
-    retrieve_memory --> route_to_specialist
+    retrieve_memory --> synthesize_email_insights
+    synthesize_email_insights --> orchestration_agent
 
-    route_to_specialist -->|intent=recruiter| recruiter_draft
-    route_to_specialist -->|intent=scheduling| scheduling_draft
-    route_to_specialist -->|intent=academic| academic_draft
-    route_to_specialist -->|intent=support| support_draft
-    route_to_specialist -->|intent=billing| billing_draft
-    route_to_specialist -->|intent=personal/spam/other OR use_specialist=false| generate_draft
+    orchestration_agent -->|selected_agent=recruiter| recruiter_draft
+    orchestration_agent -->|selected_agent=scheduling| scheduling_draft
+    orchestration_agent -->|selected_agent=academic| academic_draft
+    orchestration_agent -->|selected_agent=support| support_draft
+    orchestration_agent -->|selected_agent=billing| billing_draft
+    orchestration_agent -->|selected_agent=general| generate_draft
 
     recruiter_draft --> recruiter_extract
-    recruiter_extract --> score_confidence
+    recruiter_extract --> persist_knowledge_memory
 
     scheduling_draft --> scheduling_extract
-    scheduling_extract --> score_confidence
+    scheduling_extract --> persist_knowledge_memory
 
     academic_draft --> academic_extract
-    academic_extract --> score_confidence
+    academic_extract --> persist_knowledge_memory
 
     support_draft --> support_extract
-    support_extract --> score_confidence
+    support_extract --> persist_knowledge_memory
 
     billing_draft --> billing_extract
-    billing_extract --> score_confidence
+    billing_extract --> persist_knowledge_memory
 
     generate_draft --> extract_tasks
-    extract_tasks --> score_confidence
+    extract_tasks --> persist_knowledge_memory
+    persist_knowledge_memory --> score_confidence
 
     score_confidence --> risk_gate
     risk_gate --> human_review_interrupt
@@ -54,63 +56,65 @@ Each specialist path has the same shape inside the main graph:
 
 ```mermaid
 flowchart LR
-    route_to_specialist --> specialist_draft
+    orchestration_agent --> specialist_draft
     specialist_draft --> specialist_extract
-    specialist_extract --> score_confidence
+    specialist_extract --> persist_knowledge_memory
+    persist_knowledge_memory --> score_confidence
 ```
 
 ### Recruiter Agent
 
 ```mermaid
 flowchart LR
-    route_to_specialist --> recruiter_draft["recruiter_draft_reply()"]
+    orchestration_agent --> recruiter_draft["recruiter_draft_reply()"]
     recruiter_draft --> recruiter_extract["recruiter_extract_tasks()"]
-    recruiter_extract --> score_confidence
+    recruiter_extract --> persist_knowledge_memory
 ```
 
 ### Scheduling Agent
 
 ```mermaid
 flowchart LR
-    route_to_specialist --> scheduling_draft["scheduling_draft_reply()"]
+    orchestration_agent --> scheduling_draft["scheduling_draft_reply()"]
     scheduling_draft --> scheduling_extract["scheduling_extract_tasks()"]
-    scheduling_extract --> score_confidence
+    scheduling_extract --> persist_knowledge_memory
 ```
 
 ### Academic Agent
 
 ```mermaid
 flowchart LR
-    route_to_specialist --> academic_draft["academic_draft_reply()"]
+    orchestration_agent --> academic_draft["academic_draft_reply()"]
     academic_draft --> academic_extract["academic_extract_tasks()"]
-    academic_extract --> score_confidence
+    academic_extract --> persist_knowledge_memory
 ```
 
 ### Support Agent
 
 ```mermaid
 flowchart LR
-    route_to_specialist --> support_draft["support_draft_reply()"]
+    orchestration_agent --> support_draft["support_draft_reply()"]
     support_draft --> support_extract["support_extract_tasks()"]
-    support_extract --> score_confidence
+    support_extract --> persist_knowledge_memory
 ```
 
 ### Billing Agent
 
 ```mermaid
 flowchart LR
-    route_to_specialist --> billing_draft["billing_draft_reply()"]
+    orchestration_agent --> billing_draft["billing_draft_reply()"]
     billing_draft --> billing_extract["billing_extract_tasks()"]
-    billing_extract --> score_confidence
+    billing_extract --> persist_knowledge_memory
 ```
 
 ## General (Non-Specialist) Fallback Path
 
 ```mermaid
 flowchart LR
-    route_to_specialist --> generate_draft["draft_reply()"]
+    orchestration_agent --> generate_draft["draft_reply()"]
     generate_draft --> extract_tasks["extract_tasks()"]
-    extract_tasks --> score_confidence
+    extract_tasks --> persist_knowledge_memory
+    persist_knowledge_memory --> score_confidence
 ```
 
 This path is used when:

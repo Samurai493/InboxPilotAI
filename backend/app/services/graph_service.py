@@ -1,10 +1,13 @@
 """Service for executing LangGraph workflows."""
 import logging
 import uuid
-from typing import Dict, Any
-from langsmith import traceable
+from typing import Dict, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 from app.graphs.main_graph import graph
 from app.graphs.state import InboxPilotState
+from app.services.llm_token_usage import WorkflowTokenUsageCallback
 from app.services.tracing import trace_message_processing
 
 logger = logging.getLogger(__name__)
@@ -55,12 +58,18 @@ class GraphService:
             "risk_flags": None,
             "human_review_required": None,
             "memory_hits": None,
+            "knowledge_hits": None,
+            "email_context": None,
+            "email_summary": None,
+            "follow_ups": None,
+            "knowledge_written": None,
             "draft_reply": None,
             "extracted_tasks": None,
             "due_dates": None,
             "confidence_score": None,
             "final_status": "pending",
             "trace_id": None,
+            "llm_token_usage": None,
             "audit_log": [],
             "use_specialist": use_specialist,
         }
@@ -81,10 +90,12 @@ class GraphService:
             initial_state["gemini_api_key"] = t if t else None
         
         # Configure graph execution
+        token_cb = WorkflowTokenUsageCallback()
         config = {
             "configurable": {
                 "thread_id": thread_id
-            }
+            },
+            "callbacks": [token_cb],
         }
         
         # Execute graph with tracing
@@ -94,13 +105,27 @@ class GraphService:
             trace_message_processing(thread_id, user_id, intent)
             
             final_state = graph.invoke(initial_state, config=config)
+            usage_summary = token_cb.get_summary()
+            merged_state = dict(final_state)
+            merged_state["llm_token_usage"] = usage_summary
+            try:
+                graph.update_state(
+                    config,
+                    {"llm_token_usage": usage_summary},
+                    as_node="finalize_output",
+                )
+            except Exception:
+                logger.debug(
+                    "Could not persist llm_token_usage to checkpointer",
+                    exc_info=True,
+                )
             
             # Store trace ID if available
-            trace_id = final_state.get("trace_id")
+            trace_id = merged_state.get("trace_id")
             
             return {
                 "thread_id": thread_id,
-                "state": final_state,
+                "state": merged_state,
                 "status": "completed",
                 "trace_id": trace_id
             }
@@ -123,31 +148,76 @@ class GraphService:
             }
     
     @staticmethod
-    def get_thread_state(thread_id: str) -> Dict[str, Any]:
+    def get_thread_state(
+        thread_id: str,
+        db: "Session | None" = None,
+        request_user_id: str | None = None,
+    ) -> Dict[str, Any]:
         """
         Get the current state of a thread.
-        
-        Args:
-            thread_id: Thread identifier
-            
-        Returns:
-            Current thread state
+
+        Prefer the in-process LangGraph checkpointer; if missing (e.g. after restart),
+        fall back to ``threads.state_snapshot`` when ``db`` is provided.
         """
         config = {
             "configurable": {
                 "thread_id": thread_id
             }
         }
-        
+
         try:
-            # Get state from checkpointer
-            # In MVP with MemorySaver, we need to track state separately
-            # This will be improved with PostgreSQL checkpointer
             state = graph.get_state(config)
+            values = state.values if state else None
+            if values and request_user_id:
+                uid_in_state = values.get("user_id")
+                if uid_in_state and str(uid_in_state) != str(request_user_id):
+                    return {
+                        "thread_id": thread_id,
+                        "state": None,
+                        "status": "forbidden",
+                        "error": "Thread does not belong to this user",
+                    }
+            if values:
+                return {
+                    "thread_id": thread_id,
+                    "state": values,
+                    "status": "found",
+                }
+
+            if db is not None:
+                from app.services.workflow_thread_service import get_thread_row_by_langgraph_id
+                from app.services.gmail_oauth import require_user_uuid
+
+                row = get_thread_row_by_langgraph_id(db, thread_id)
+                if row:
+                    if request_user_id:
+                        try:
+                            req = require_user_uuid(request_user_id)
+                        except Exception:
+                            return {
+                                "thread_id": thread_id,
+                                "state": None,
+                                "status": "forbidden",
+                                "error": "Invalid user_id",
+                            }
+                        if row.user_id != req:
+                            return {
+                                "thread_id": thread_id,
+                                "state": None,
+                                "status": "forbidden",
+                                "error": "Thread does not belong to this user",
+                            }
+                    return {
+                        "thread_id": thread_id,
+                        "state": row.state_snapshot,
+                        "status": row.status or "found",
+                        "source": "database",
+                    }
+
             return {
                 "thread_id": thread_id,
-                "state": state.values if state else None,
-                "status": "found" if state else "not_found"
+                "state": None,
+                "status": "not_found",
             }
         except Exception as e:
             logger.exception("Failed to retrieve thread state", extra={"thread_id": thread_id})
@@ -155,5 +225,5 @@ class GraphService:
                 "thread_id": thread_id,
                 "state": None,
                 "status": "error",
-                "error": str(e)
+                "error": str(e),
             }

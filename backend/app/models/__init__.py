@@ -7,6 +7,8 @@ from .task import Task
 from .user_preference import UserPreference
 from .review import Review
 from .gmail_credential import GmailCredential
+from .knowledge_entity import KnowledgeEntity
+from .knowledge_relation import KnowledgeRelation
 from .base import Base
 
 __all__ = [
@@ -19,4 +21,6 @@ __all__ = [
     "UserPreference",
     "Review",
     "GmailCredential",
+    "KnowledgeEntity",
+    "KnowledgeRelation",
 ]

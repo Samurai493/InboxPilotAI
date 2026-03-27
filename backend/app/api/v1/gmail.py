@@ -53,6 +53,11 @@ class GmailDraftRequest(BaseModel):
     body: str
 
 
+class GmailMessagesPageResponse(BaseModel):
+    messages: list[GmailMessageResponse]
+    next_page_token: str | None = None
+
+
 def _user_uuid_param(user_id: str):
     try:
         return require_user_uuid(user_id)
@@ -155,6 +160,28 @@ async def list_gmail_messages(
         svc = GmailService(credentials=creds)
         rows = svc.list_message_summaries(max_results=max_results)
         return [GmailMessageResponse(**r) for r in rows]
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.get("/gmail/messages/page", response_model=GmailMessagesPageResponse)
+async def list_gmail_messages_page(
+    user_id: str | None = None,
+    max_results: int = 100,
+    page_token: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
+):
+    """List one inbox page and a token for loading the next page."""
+    user_id = resolve_user_id_or_current(user_id, current_user)
+    creds = _credentials_or_404(db, user_id)
+    try:
+        svc = GmailService(credentials=creds)
+        page = svc.list_message_summaries_page(max_results=max_results, page_token=page_token)
+        return GmailMessagesPageResponse(
+            messages=[GmailMessageResponse(**r) for r in page.get("messages", [])],
+            next_page_token=page.get("next_page_token"),
+        )
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
 
