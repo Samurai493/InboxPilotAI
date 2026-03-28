@@ -1,7 +1,7 @@
 """Metrics endpoints for admin dashboard."""
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db
@@ -33,9 +33,9 @@ async def get_metrics_summary(db: Session = Depends(get_db)):
     successful_threads = db.query(Thread).filter(Thread.status == "completed").count()
     failed_threads = db.query(Thread).filter(Thread.status == "failed").count()
     
-    # Confidence metrics
-    avg_confidence_result = db.query(func.avg(func.cast(Draft.confidence_score, db.Float))).scalar()
-    avg_confidence = float(avg_confidence_result) if avg_confidence_result else None
+    # Confidence metrics (Draft.confidence_score is already Float; avoid invalid db.Float cast)
+    avg_confidence_result = db.query(func.avg(Draft.confidence_score)).scalar()
+    avg_confidence = float(avg_confidence_result) if avg_confidence_result is not None else None
     
     # Review metrics
     total_reviews = db.query(Review).count()

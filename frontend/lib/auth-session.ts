@@ -6,9 +6,11 @@ export function getGoogleIdToken(): string | null {
 }
 
 export function setGoogleIdToken(token: string): void {
+  if (typeof window === 'undefined') return
   localStorage.setItem(GOOGLE_ID_TOKEN_KEY, token)
 }
 
 export function clearGoogleIdToken(): void {
+  if (typeof window === 'undefined') return
   localStorage.removeItem(GOOGLE_ID_TOKEN_KEY)
 }

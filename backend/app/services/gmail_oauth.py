@@ -5,8 +5,10 @@ import base64
 import hashlib
 import hmac
 import json
+import threading
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import List
 from urllib.parse import parse_qs, urlparse
 
@@ -31,6 +33,17 @@ GMAIL_SCOPES: List[str] = [
 ]
 
 _STATE_TTL_SECONDS = 900
+
+# Serialize refresh + DB commit per user so parallel Gmail requests do not all refresh at once.
+_cred_refresh_locks_guard = threading.Lock()
+_cred_refresh_locks: dict[uuid.UUID, threading.Lock] = {}
+
+
+def _credentials_refresh_lock(user_id: uuid.UUID) -> threading.Lock:
+    with _cred_refresh_locks_guard:
+        if user_id not in _cred_refresh_locks:
+            _cred_refresh_locks[user_id] = threading.Lock()
+        return _cred_refresh_locks[user_id]
 
 
 def _client_config() -> dict:
@@ -125,7 +138,8 @@ def complete_oauth(db: Session, authorization_response_url: str) -> GmailCredent
         db.add(row)
     row.refresh_token = creds.refresh_token
     row.access_token = creds.token
-    row.token_expiry = creds.expiry
+    creds.expiry = _expiry_naive_utc_for_google_auth(creds.expiry)
+    row.token_expiry = _expiry_aware_utc_for_db(creds.expiry)
     row.scopes = scope_str
 
     svc = build("gmail", "v1", credentials=creds)
@@ -146,24 +160,56 @@ def delete_gmail_connection(db: Session, user_id: uuid.UUID) -> bool:
     return True
 
 
-def get_gmail_credentials(db: Session, user_id: uuid.UUID) -> Credentials | None:
-    row = db.query(GmailCredential).filter(GmailCredential.user_id == user_id).first()
-    if not row:
+def _expiry_naive_utc_for_google_auth(dt: datetime | None) -> datetime | None:
+    """Align with google.auth._helpers.utcnow() (naive UTC); aware expiries break creds.expired."""
+    if dt is None:
         return None
+    if getattr(dt, "tzinfo", None) is None:
+        return dt
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _expiry_aware_utc_for_db(dt: datetime | None) -> datetime | None:
+    """Store token_expiry as timezone-aware UTC for DateTime(timezone=True)."""
+    if dt is None:
+        return None
+    if getattr(dt, "tzinfo", None) is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _credentials_from_gmail_row(row: GmailCredential) -> Credentials:
     scopes = (row.scopes.split(",") if row.scopes else None) or GMAIL_SCOPES
-    creds = Credentials(
+    expiry_creds = _expiry_naive_utc_for_google_auth(row.token_expiry)
+    return Credentials(
         token=row.access_token,
         refresh_token=row.refresh_token,
         token_uri="https://oauth2.googleapis.com/token",
         client_id=settings.GOOGLE_CLIENT_ID,
         client_secret=settings.GOOGLE_CLIENT_SECRET,
         scopes=scopes,
+        expiry=expiry_creds,
     )
-    if creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-        row.access_token = creds.token
-        row.token_expiry = creds.expiry
-        db.commit()
+
+
+def get_gmail_credentials(db: Session, user_id: uuid.UUID) -> Credentials | None:
+    row = db.query(GmailCredential).filter(GmailCredential.user_id == user_id).first()
+    if not row:
+        return None
+    creds = _credentials_from_gmail_row(row)
+    if creds.refresh_token and (not row.access_token or creds.expired):
+        with _credentials_refresh_lock(user_id):
+            row = db.query(GmailCredential).filter(GmailCredential.user_id == user_id).first()
+            if not row:
+                return None
+            creds = _credentials_from_gmail_row(row)
+            if not (creds.refresh_token and (not row.access_token or creds.expired)):
+                return creds
+            creds.refresh(Request())
+            creds.expiry = _expiry_naive_utc_for_google_auth(creds.expiry)
+            row.access_token = creds.token
+            row.token_expiry = _expiry_aware_utc_for_db(creds.expiry)
+            db.commit()
     return creds
 
 

@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import Script from 'next/script'
 import { useRouter } from 'next/navigation'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   authenticateWithGoogleIdToken,
   createGmailDraft,
@@ -16,12 +16,50 @@ import {
   listGmailMessagesPage,
   processMessage,
 } from '@/lib/api'
-import type { GmailMessageResponse } from '@/lib/api'
+import type { GmailMessageResponse, GmailMessagesPageResponse } from '@/lib/api'
 import type { GmailStatusResponse } from '@/lib/api'
 import { clearGoogleIdToken, getGoogleIdToken, setGoogleIdToken } from '@/lib/auth-session'
 import { setStoredUserId } from '@/lib/user-session'
 import { getGoogleClientIdForGis } from '@/lib/app-settings'
+import {
+  clearGmailInboxPagesLocalStorage,
+  getCachedInboxPage,
+  saveInboxPageToLocalStorage,
+} from '@/lib/gmail-inbox-pages-local-cache'
+import {
+  clearInboxNavSession,
+  readInboxNavSession,
+  saveInboxNavSession,
+} from '@/lib/inbox-nav-session'
+import {
+  clearGmailMessagesLocalStorage,
+  mergeGmailMessagesFromLocalStorage,
+  saveGmailMessageToLocalStorage,
+} from '@/lib/gmail-message-local-cache'
 import { cacheThreadState } from '@/lib/thread-state-cache'
+
+/** Inbox list page size and body-prefetch depth (matches `/gmail/messages/page` default). */
+const GMAIL_PAGE_SIZE = 50
+/** Cap parallel full-message fetches so the API is not hit with ~50 concurrent heavy requests per page. */
+const MAX_CONCURRENT_BODY_PREFETCH = 8
+
+function pickListMessageId(
+  messages: GmailMessageResponse[],
+  preferId: string | null | undefined,
+): string | null {
+  if (preferId && messages.some((m) => m.id === preferId)) return preferId
+  return messages[0]?.id ?? null
+}
+
+/** Run after React commits so the scroll container reflects the new list. */
+function queueScrollContainerToTop(el: HTMLElement | null) {
+  if (!el) return
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      el.scrollTop = 0
+    })
+  })
+}
 
 declare global {
   interface Window {
@@ -61,6 +99,30 @@ export default function Home() {
   const [workflowError, setWorkflowError] = useState<string | null>(null)
   const [savedThreadIdForMessage, setSavedThreadIdForMessage] = useState<string | null>(null)
 
+  const bodyDetailCacheRef = useRef<Map<string, GmailMessageResponse>>(new Map())
+  const bodyPrefetchInFlightRef = useRef<Set<string>>(new Set())
+  const bodyPrefetchQueueRef = useRef<{ uid: string; messageId: string }[]>([])
+  const bodyPrefetchQueuedIdsRef = useRef<Set<string>>(new Set())
+  const prefetchedNextPageRef = useRef<{
+    pageToken: string
+    page: GmailMessagesPageResponse
+  } | null>(null)
+  /** Latest explicit message id the reader should show (drops stale async completions). */
+  const pendingDetailMessageIdRef = useRef<string | null>(null)
+  const detailLoadGenerationRef = useRef(0)
+  const detailAbortRef = useRef<AbortController | null>(null)
+  /** Invalidates stale background inbox revalidation after navigation. */
+  const inboxLoadGenerationRef = useRef(0)
+  /** Avoid writing sessionStorage before the first inbox load (would overwrite restore payload). */
+  const inboxSessionHydratedRef = useRef(false)
+  const gmailInboxListScrollRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    bodyDetailCacheRef.current.clear()
+    if (!userId) return
+    mergeGmailMessagesFromLocalStorage(userId, bodyDetailCacheRef.current)
+  }, [userId])
+
   const refreshGmail = useCallback(async (uid: string): Promise<GmailStatusResponse> => {
     const status = await getGmailStatus(uid)
     setGmailConnected(status.connected)
@@ -68,30 +130,135 @@ export default function Home() {
     return status
   }, [])
 
+  const loadSavedThreadForMessage = useCallback(async (uid: string, messageId: string) => {
+    try {
+      const latest = await getLatestThreadForGmailMessage(messageId, uid)
+      if (pendingDetailMessageIdRef.current !== messageId) return
+      setSavedThreadIdForMessage(latest.thread_id)
+    } catch (lookupErr) {
+      if (pendingDetailMessageIdRef.current !== messageId) return
+      if (lookupErr instanceof Error && lookupErr.message !== 'NOT_FOUND') {
+        console.warn(lookupErr.message)
+      }
+    }
+  }, [])
+
+  const pumpBodyPrefetchQueue = useCallback(() => {
+    while (
+      bodyPrefetchInFlightRef.current.size < MAX_CONCURRENT_BODY_PREFETCH &&
+      bodyPrefetchQueueRef.current.length > 0
+    ) {
+      const job = bodyPrefetchQueueRef.current.shift()
+      if (!job) break
+      const { uid, messageId } = job
+      if (bodyDetailCacheRef.current.has(messageId)) {
+        bodyPrefetchQueuedIdsRef.current.delete(messageId)
+        continue
+      }
+      if (bodyPrefetchInFlightRef.current.has(messageId)) {
+        bodyPrefetchQueuedIdsRef.current.delete(messageId)
+        continue
+      }
+      bodyPrefetchInFlightRef.current.add(messageId)
+      bodyPrefetchQueuedIdsRef.current.delete(messageId)
+      void getGmailMessage(messageId, uid)
+        .then((msg) => {
+          bodyDetailCacheRef.current.set(messageId, msg)
+          saveGmailMessageToLocalStorage(uid, msg)
+        })
+        .catch(() => {
+          /* single-message failures are non-fatal for prefetch */
+        })
+        .finally(() => {
+          bodyPrefetchInFlightRef.current.delete(messageId)
+          pumpBodyPrefetchQueue()
+        })
+    }
+  }, [])
+
+  const ensureBodyPrefetched = useCallback(
+    (uid: string, messageId: string) => {
+      if (bodyDetailCacheRef.current.has(messageId)) return
+      if (bodyPrefetchInFlightRef.current.has(messageId)) return
+      if (bodyPrefetchQueuedIdsRef.current.has(messageId)) return
+      bodyPrefetchQueuedIdsRef.current.add(messageId)
+      bodyPrefetchQueueRef.current.push({ uid, messageId })
+      pumpBodyPrefetchQueue()
+    },
+    [pumpBodyPrefetchQueue],
+  )
+
+  /** Full message bodies: first 50 on this list only (not the whole thread). */
+  const prefetchBodiesFirstFifty = useCallback(
+    (uid: string, messageIds: string[]) => {
+      for (const id of messageIds.slice(0, GMAIL_PAGE_SIZE)) {
+        ensureBodyPrefetched(uid, id)
+      }
+    },
+    [ensureBodyPrefetched],
+  )
+
+  /** Background: load the next Gmail list page + prefetch bodies for its first 50 messages. */
+  const prefetchNextGmailListPage = useCallback(
+    async (uid: string, pageToken: string | null) => {
+      prefetchedNextPageRef.current = null
+      if (!pageToken) return
+      try {
+        const page = await listGmailMessagesPage(uid, GMAIL_PAGE_SIZE, pageToken)
+        saveInboxPageToLocalStorage(uid, pageToken, page)
+        prefetchedNextPageRef.current = { pageToken, page }
+        prefetchBodiesFirstFifty(
+          uid,
+          page.messages.map((m) => m.id),
+        )
+      } catch {
+        prefetchedNextPageRef.current = null
+      }
+    },
+    [prefetchBodiesFirstFifty],
+  )
+
   const loadGmailMessageDetail = useCallback(
     async (uid: string, messageId: string) => {
-      setSelectedGmailMessageBusy(true)
+      detailAbortRef.current?.abort()
+      const ac = new AbortController()
+      detailAbortRef.current = ac
+      const myGen = ++detailLoadGenerationRef.current
+      pendingDetailMessageIdRef.current = messageId
+
       setSelectedGmailMessageError(null)
       setSavedThreadIdForMessage(null)
+
+      const cached = bodyDetailCacheRef.current.get(messageId)
+      if (cached) {
+        if (myGen !== detailLoadGenerationRef.current) return
+        setSelectedGmailMessage(cached)
+        setSelectedGmailMessageBusy(false)
+        void loadSavedThreadForMessage(uid, messageId)
+        return
+      }
+
+      setSelectedGmailMessageBusy(true)
       try {
-        const msg = await getGmailMessage(messageId, uid)
+        const msg = await getGmailMessage(messageId, uid, { signal: ac.signal })
+        if (myGen !== detailLoadGenerationRef.current) return
+        bodyDetailCacheRef.current.set(messageId, msg)
+        saveGmailMessageToLocalStorage(uid, msg)
         setSelectedGmailMessage(msg)
-        try {
-          const latest = await getLatestThreadForGmailMessage(messageId, uid)
-          setSavedThreadIdForMessage(latest.thread_id)
-        } catch (lookupErr) {
-          if (lookupErr instanceof Error && lookupErr.message !== 'NOT_FOUND') {
-            console.warn(lookupErr.message)
-          }
-        }
+        void loadSavedThreadForMessage(uid, messageId)
       } catch (e) {
+        if (e instanceof DOMException && e.name === 'AbortError') return
+        if (e instanceof Error && e.name === 'AbortError') return
+        if (myGen !== detailLoadGenerationRef.current) return
         setSelectedGmailMessage(null)
         setSelectedGmailMessageError(e instanceof Error ? e.message : 'Failed to load message')
       } finally {
-        setSelectedGmailMessageBusy(false)
+        if (myGen === detailLoadGenerationRef.current) {
+          setSelectedGmailMessageBusy(false)
+        }
       }
     },
-    [],
+    [loadSavedThreadForMessage],
   )
 
   const loadGmailMessagesPageAt = useCallback(
@@ -100,33 +267,82 @@ export default function Home() {
       pageToken: string | null,
       pageIndex: number,
       tokenHistory: Array<string | null>,
+      options?: { preferMessageId?: string | null },
     ) => {
+      const myGen = ++inboxLoadGenerationRef.current
+      prefetchedNextPageRef.current = null
       setGmailMessagesBusy(true)
       setGmailMessagesError(null)
       setSelectedGmailMessage(null)
       setSelectedGmailMessageId(null)
       setSelectedGmailMessageError(null)
       setSavedThreadIdForMessage(null)
-      try {
-        const page = await listGmailMessagesPage(uid, 100, pageToken)
+
+      const applyPage = (page: GmailMessagesPageResponse) => {
         setGmailMessages(page.messages)
         setGmailNextPageToken(page.next_page_token ?? null)
         setGmailPageIndex(pageIndex)
         setGmailPageTokens(tokenHistory)
-        const first = page.messages[0]
-        if (first) {
-          setSelectedGmailMessageId(first.id)
-          await loadGmailMessageDetail(uid, first.id)
+        prefetchBodiesFirstFifty(uid, page.messages.map((m) => m.id))
+        void prefetchNextGmailListPage(uid, page.next_page_token ?? null)
+      }
+
+      const cached = getCachedInboxPage(uid, pageToken)
+      if (cached) {
+        try {
+          applyPage(cached)
+          const pickId = pickListMessageId(cached.messages, options?.preferMessageId)
+          if (pickId) {
+            setSelectedGmailMessageId(pickId)
+            await loadGmailMessageDetail(uid, pickId)
+          }
+        } finally {
+          if (myGen === inboxLoadGenerationRef.current) {
+            setGmailMessagesBusy(false)
+          }
+        }
+        void (async () => {
+          try {
+            const fresh = await listGmailMessagesPage(uid, GMAIL_PAGE_SIZE, pageToken)
+            if (myGen !== inboxLoadGenerationRef.current) return
+            saveInboxPageToLocalStorage(uid, pageToken, fresh)
+            setGmailMessages(fresh.messages)
+            setGmailNextPageToken(fresh.next_page_token ?? null)
+            prefetchBodiesFirstFifty(uid, fresh.messages.map((m) => m.id))
+            void prefetchNextGmailListPage(uid, fresh.next_page_token ?? null)
+          } catch {
+            /* keep showing cache */
+          }
+        })()
+        return
+      }
+
+      try {
+        const page = await listGmailMessagesPage(uid, GMAIL_PAGE_SIZE, pageToken)
+        if (myGen !== inboxLoadGenerationRef.current) return
+        saveInboxPageToLocalStorage(uid, pageToken, page)
+        applyPage(page)
+        const pickId = pickListMessageId(page.messages, options?.preferMessageId)
+        if (pickId) {
+          setSelectedGmailMessageId(pickId)
+          await loadGmailMessageDetail(uid, pickId)
         }
       } catch (e) {
+        if (myGen !== inboxLoadGenerationRef.current) return
         setGmailMessages([])
         setGmailNextPageToken(null)
         setGmailMessagesError(e instanceof Error ? e.message : 'Failed to load messages')
       } finally {
-        setGmailMessagesBusy(false)
+        if (myGen === inboxLoadGenerationRef.current) {
+          setGmailMessagesBusy(false)
+        }
       }
     },
-    [loadGmailMessageDetail],
+    [
+      loadGmailMessageDetail,
+      prefetchBodiesFirstFifty,
+      prefetchNextGmailListPage,
+    ],
   )
 
   useEffect(() => {
@@ -161,14 +377,65 @@ export default function Home() {
   }, [userId, refreshGmail])
 
   useEffect(() => {
+    if (!gmailConnected) {
+      inboxSessionHydratedRef.current = false
+    }
+  }, [gmailConnected])
+
+  useEffect(() => {
     if (!userId || !gmailConnected) return
-    loadGmailMessagesPageAt(userId, null, 0, [null]).catch(() => {})
-  }, [userId, gmailConnected, loadGmailMessagesPageAt])
+    let alive = true
+    void (async () => {
+      try {
+        if (gmailConnectedFromQuery) {
+          clearInboxNavSession(userId)
+          await loadGmailMessagesPageAt(userId, null, 0, [null])
+        } else {
+          const saved = readInboxNavSession(userId)
+          if (saved?.pageTokens?.length) {
+            const pi = Math.min(Math.max(0, saved.pageIndex), saved.pageTokens.length - 1)
+            const token = saved.pageTokens[pi] ?? null
+            await loadGmailMessagesPageAt(userId, token, pi, saved.pageTokens, {
+              preferMessageId: saved.selectedMessageId,
+            })
+          } else {
+            await loadGmailMessagesPageAt(userId, null, 0, [null])
+          }
+        }
+      } catch {
+        /* loadGmailMessagesPageAt sets error state */
+      } finally {
+        if (alive) inboxSessionHydratedRef.current = true
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [userId, gmailConnected, gmailConnectedFromQuery, loadGmailMessagesPageAt])
+
+  useEffect(() => {
+    if (!userId || !gmailConnected) return
+    if (!inboxSessionHydratedRef.current) return
+    saveInboxNavSession(userId, {
+      pageIndex: gmailPageIndex,
+      pageTokens: gmailPageTokens,
+      nextPageToken: gmailNextPageToken,
+      selectedMessageId: selectedGmailMessageId,
+    })
+  }, [
+    userId,
+    gmailConnected,
+    gmailPageIndex,
+    gmailPageTokens,
+    gmailNextPageToken,
+    selectedGmailMessageId,
+  ])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const params = new URLSearchParams(window.location.search)
-    setGmailConnectedFromQuery(params.get('gmail_connected') === '1')
+    setGmailConnectedFromQuery(
+      new URLSearchParams(window.location.search).get('gmail_connected') === '1',
+    )
   }, [])
 
   // After a successful Gmail OAuth callback, backend redirects back to /?gmail_connected=1.
@@ -184,7 +451,6 @@ export default function Home() {
       try {
         const status = await refreshGmail(userId)
         if (status.connected) {
-          await loadGmailMessagesPageAt(userId, null, 0, [null])
           return
         }
       } catch {
@@ -276,7 +542,21 @@ export default function Home() {
   }
 
   const signOut = () => {
+    if (userId) {
+      clearGmailMessagesLocalStorage(userId)
+      clearGmailInboxPagesLocalStorage(userId)
+      clearInboxNavSession(userId)
+    }
+    inboxSessionHydratedRef.current = false
     clearGoogleIdToken()
+    detailAbortRef.current?.abort()
+    detailAbortRef.current = null
+    pendingDetailMessageIdRef.current = null
+    bodyDetailCacheRef.current.clear()
+    bodyPrefetchInFlightRef.current.clear()
+    bodyPrefetchQueueRef.current = []
+    bodyPrefetchQueuedIdsRef.current.clear()
+    prefetchedNextPageRef.current = null
     setUserId(null)
     setSignedInEmail(null)
     setGmailConnected(false)
@@ -297,9 +577,35 @@ export default function Home() {
 
   const handleNextGmailPage = async () => {
     if (!userId || !gmailNextPageToken || gmailMessagesBusy) return
+    const pref = prefetchedNextPageRef.current
+    if (pref && pref.pageToken === gmailNextPageToken) {
+      const nextIndex = gmailPageIndex + 1
+      const nextHistory = [...gmailPageTokens.slice(0, nextIndex), gmailNextPageToken]
+      prefetchedNextPageRef.current = null
+      setGmailMessages(pref.page.messages)
+      setGmailNextPageToken(pref.page.next_page_token ?? null)
+      setGmailPageIndex(nextIndex)
+      setGmailPageTokens(nextHistory)
+      setGmailMessagesError(null)
+      setSelectedGmailMessageError(null)
+      setSavedThreadIdForMessage(null)
+      prefetchBodiesFirstFifty(userId, pref.page.messages.map((m) => m.id))
+      void prefetchNextGmailListPage(userId, pref.page.next_page_token ?? null)
+      const first = pref.page.messages[0]
+      if (first) {
+        setSelectedGmailMessageId(first.id)
+        await loadGmailMessageDetail(userId, first.id)
+      } else {
+        setSelectedGmailMessageId(null)
+        setSelectedGmailMessage(null)
+      }
+      queueScrollContainerToTop(gmailInboxListScrollRef.current)
+      return
+    }
     const nextIndex = gmailPageIndex + 1
     const nextHistory = [...gmailPageTokens.slice(0, nextIndex), gmailNextPageToken]
     await loadGmailMessagesPageAt(userId, gmailNextPageToken, nextIndex, nextHistory)
+    queueScrollContainerToTop(gmailInboxListScrollRef.current)
   }
 
   const handlePrevGmailPage = async () => {
@@ -308,6 +614,7 @@ export default function Home() {
     const prevToken = gmailPageTokens[prevIndex] ?? null
     const prevHistory = gmailPageTokens.slice(0, prevIndex + 1)
     await loadGmailMessagesPageAt(userId, prevToken, prevIndex, prevHistory)
+    queueScrollContainerToTop(gmailInboxListScrollRef.current)
   }
 
   const handleRunWorkflow = useCallback(async () => {
@@ -402,6 +709,7 @@ export default function Home() {
                 type="button"
                 onClick={() => {
                   if (!userId) return
+                  clearInboxNavSession(userId)
                   void loadGmailMessagesPageAt(userId, null, 0, [null])
                 }}
                 disabled={gmailMessagesBusy}
@@ -433,7 +741,7 @@ export default function Home() {
             <aside className="flex w-full max-w-[22rem] shrink-0 flex-col border-r border-gray-200 bg-white min-h-0">
               <div className="flex items-center justify-between gap-2 border-b border-gray-200 px-3 py-2">
                 <div className="text-xs font-semibold text-gray-700">
-                  Inbox ({gmailPageIndex * 100 + 1}-{gmailPageIndex * 100 + gmailMessages.length})
+                  {`Inbox (${gmailPageIndex * GMAIL_PAGE_SIZE + 1}–${gmailPageIndex * GMAIL_PAGE_SIZE + gmailMessages.length})`}
                 </div>
                 <div className="flex items-center gap-1">
                   <button
@@ -441,8 +749,8 @@ export default function Home() {
                     onClick={() => void handlePrevGmailPage()}
                     disabled={gmailMessagesBusy || gmailPageIndex === 0}
                     className="rounded border border-gray-300 px-2 py-0.5 text-xs text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                    aria-label="Previous 100 emails"
-                    title="Previous 100 emails"
+                    aria-label="Previous page of emails"
+                    title="Previous page"
                   >
                     ←
                   </button>
@@ -451,14 +759,14 @@ export default function Home() {
                     onClick={() => void handleNextGmailPage()}
                     disabled={gmailMessagesBusy || !gmailNextPageToken}
                     className="rounded border border-gray-300 px-2 py-0.5 text-xs text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                    aria-label="Next 100 emails"
-                    title="Next 100 emails"
+                    aria-label="Next page of emails"
+                    title="Next page"
                   >
                     →
                   </button>
                 </div>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto p-2">
+              <div ref={gmailInboxListScrollRef} className="min-h-0 flex-1 overflow-y-auto p-2">
                 {gmailMessagesError && (
                   <p className="mb-2 text-sm text-red-600">{gmailMessagesError}</p>
                 )}
@@ -473,10 +781,9 @@ export default function Home() {
                       type="button"
                       onClick={() => {
                         if (!userId) return
-                        void loadGmailMessageDetail(userId, m.id)
                         setSelectedGmailMessageId(m.id)
+                        void loadGmailMessageDetail(userId, m.id)
                       }}
-                      disabled={selectedGmailMessageBusy}
                       className={[
                         'mb-1 w-full rounded-lg border p-2 text-left transition-colors',
                         isSelected

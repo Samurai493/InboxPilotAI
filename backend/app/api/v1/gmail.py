@@ -167,7 +167,7 @@ async def list_gmail_messages(
 @router.get("/gmail/messages/page", response_model=GmailMessagesPageResponse)
 async def list_gmail_messages_page(
     user_id: str | None = None,
-    max_results: int = 100,
+    max_results: int = 50,
     page_token: str | None = None,
     db: Session = Depends(get_db),
     current_user: User | None = Depends(get_current_user_optional),

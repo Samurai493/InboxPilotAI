@@ -287,7 +287,7 @@ export async function getGmailAuthorizationUrl(
 
 export async function listGmailMessages(
   userId?: string,
-  maxResults: number = 100,
+  maxResults: number = 50,
 ): Promise<GmailMessageResponse[]> {
   const url = new URL(`${getApiBaseUrl()}/api/v1/gmail/messages`)
   url.searchParams.set('max_results', String(maxResults))
@@ -310,7 +310,7 @@ export async function listGmailMessages(
 
 export async function listGmailMessagesPage(
   userId?: string,
-  maxResults: number = 100,
+  maxResults: number = 50,
   pageToken?: string | null,
 ): Promise<GmailMessagesPageResponse> {
   const url = new URL(`${getApiBaseUrl()}/api/v1/gmail/messages/page`)
@@ -335,6 +335,7 @@ export async function listGmailMessagesPage(
 export async function getGmailMessage(
   messageId: string,
   userId?: string,
+  options?: { signal?: AbortSignal },
 ): Promise<GmailMessageResponse> {
   const url = new URL(
     `${getApiBaseUrl()}/api/v1/gmail/messages/${encodeURIComponent(messageId)}`,
@@ -344,6 +345,7 @@ export async function getGmailMessage(
   const response = await fetch(url.toString(), {
     method: 'GET',
     headers: authHeaders({ Accept: 'application/json' }),
+    signal: options?.signal,
   })
 
   if (!response.ok) {

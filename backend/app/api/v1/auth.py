@@ -1,5 +1,5 @@
 """Authentication endpoints."""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -43,6 +43,8 @@ async def auth_me(current_user: User = Depends(get_current_user)):
 
 
 @router.get("/auth/config", response_model=PublicAuthConfigResponse)
-async def auth_config():
+async def auth_config(response: Response):
     """Public auth config for frontend runtime environments."""
+    # Safe to cache: static client id; reduces repeat cold-load latency on sign-in page.
+    response.headers["Cache-Control"] = "public, max-age=300"
     return PublicAuthConfigResponse(google_client_id=settings.GOOGLE_CLIENT_ID)

@@ -6,6 +6,7 @@ export function getStoredUserId(): string | null {
 }
 
 export function setStoredUserId(id: string): void {
+  if (typeof window === 'undefined') return
   localStorage.setItem(STORAGE_KEY, id)
 }
 
