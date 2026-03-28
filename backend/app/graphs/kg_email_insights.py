@@ -74,18 +74,9 @@ def synthesize_email_insights(state: InboxPilotState) -> InboxPilotState:
         [
             (
                 "system",
-                """You help an inbox assistant. Using the email text, classification, user preferences,
-and recent knowledge-graph memory, produce three outputs.
-
-Return ONLY valid JSON with this exact schema:
-{{
-  "email_context": "<2-5 sentences: who/what/why, grounded in graph memory when relevant>",
-  "email_summary": "<1-3 sentences: neutral summary of the email>",
-  "follow_ups": ["<action 1>", "<action 2>"]
-}}
-
-follow_ups should be concrete next steps for the recipient (max 6 items). If none, use [].
-Do not include markdown or code fences.""",
+                """Inbox assistant: merge email + intent + prefs + graph memory into JSON only (no markdown):
+{{"email_context":"2-5 sentences who/what/why (use graph when relevant)","email_summary":"1-3 neutral sentences","follow_ups":["concrete next steps for recipient, max 6"]}}
+Use [] for follow_ups if none.""",
             ),
             (
                 "user",

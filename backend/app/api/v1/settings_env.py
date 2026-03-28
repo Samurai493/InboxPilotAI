@@ -18,6 +18,8 @@ async def env_template():
     return {
         "llmProvider": s.LLM_PROVIDER,
         "llmModel": s.LLM_MODEL or "",
+        "llmFastModel": s.LLM_FAST_MODEL or "",
+        "orchestrationUseLlm": s.ORCHESTRATION_USE_LLM,
         "openaiApiKey": s.OPENAI_API_KEY or "",
         "openaiModel": s.OPENAI_MODEL,
         "anthropicApiKey": s.ANTHROPIC_API_KEY or "",

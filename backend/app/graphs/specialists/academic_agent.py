@@ -32,23 +32,16 @@ def academic_draft_reply(state: InboxPilotState) -> InboxPilotState:
 
 def academic_extract_tasks(state: InboxPilotState) -> InboxPilotState:
     """Specialist task extraction for academic messages."""
-    model = get_chat_model_for_state(state, temperature=0)
-    
+    model = get_chat_model_for_state(state, temperature=0, model_tier="fast")
+
     message = state.get("normalized_message", state.get("raw_message", ""))
-    
+
     prompt = ChatPromptTemplate.from_messages([
-        ("system", """Extract academic-related tasks:
-        - Assignment deadlines
-        - Exam dates
-        - Submission requirements
-        - Registration deadlines
-        
-        Return a JSON array of tasks, each with:
-        - description: what needs to be done
-        - due_date: ISO format date if mentioned, null otherwise
-        - priority: low, medium, or high
-        
-        Return ONLY valid JSON, no other text."""),
+        (
+            "system",
+            """Academic tasks: assignments, exams, submissions, registration, advising follow-ups.
+Return ONLY JSON array: [{{"description":str,"due_date":str|null,"priority":"low"|"medium"|"high"}}] or [].""",
+        ),
         ("user", f"Message:\n{message}")
     ])
     

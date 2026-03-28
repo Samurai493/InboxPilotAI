@@ -32,22 +32,16 @@ def scheduling_draft_reply(state: InboxPilotState) -> InboxPilotState:
 
 def scheduling_extract_tasks(state: InboxPilotState) -> InboxPilotState:
     """Specialist task extraction for scheduling messages."""
-    model = get_chat_model_for_state(state, temperature=0)
+    model = get_chat_model_for_state(state, temperature=0, model_tier="fast")
 
     message = state.get("normalized_message", state.get("raw_message", ""))
 
     prompt = ChatPromptTemplate.from_messages([
-        ("system", """Extract scheduling-related tasks:
-        - Meeting confirmations
-        - Calendar invites to send
-        - Time confirmations needed
-
-        Return a JSON array of tasks, each with:
-        - description: what needs to be done
-        - due_date: ISO format date if mentioned, null otherwise
-        - priority: low, medium, or high
-
-        Return ONLY valid JSON, no other text."""),
+        (
+            "system",
+            """Scheduling tasks: meetings, invites, time confirmations, RSVPs.
+Return ONLY JSON array: [{{"description":str,"due_date":str|null,"priority":"low"|"medium"|"high"}}] or [].""",
+        ),
         ("user", f"Message:\n{message}")
     ])
 

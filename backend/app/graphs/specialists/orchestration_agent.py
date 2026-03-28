@@ -4,6 +4,7 @@ from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
 
+from app.config import settings
 from app.graphs.state import InboxPilotState
 from app.services.llm_utils import get_chat_model_for_state, get_text_content
 
@@ -33,11 +34,25 @@ def _safe_actions(raw: Any) -> list[str]:
     return cleaned[:6]
 
 
+def _deterministic_orchestration(state: InboxPilotState) -> InboxPilotState:
+    intent = state.get("intent", "personal")
+    selected_agent = _fallback_agent(intent)
+    return {
+        "selected_agent": selected_agent,
+        "orchestration_rationale": f"Routed from classified intent ({intent!r}).",
+        "planned_actions": ["Draft a reply", "Extract action items and deadlines"],
+        "audit_log": [
+            {
+                "node": "orchestration_agent",
+                "action": "routing_deterministic",
+                "selected_agent": selected_agent,
+            }
+        ],
+    }
+
+
 def orchestrate_email(state: InboxPilotState) -> InboxPilotState:
     """Choose the best specialist based on message content and intent."""
-    model = get_chat_model_for_state(state, temperature=0)
-    message = state.get("normalized_message", state.get("raw_message", ""))
-    intent = state.get("intent", "personal")
     use_specialist = state.get("use_specialist", True)
 
     if use_specialist is False:
@@ -54,36 +69,27 @@ def orchestrate_email(state: InboxPilotState) -> InboxPilotState:
             ],
         }
 
+    if not settings.ORCHESTRATION_USE_LLM:
+        return _deterministic_orchestration(state)
+
+    model = get_chat_model_for_state(state, temperature=0, model_tier="fast")
+    message = state.get("normalized_message", state.get("raw_message", ""))
+    intent = state.get("intent", "personal")
+
     prompt = ChatPromptTemplate.from_messages(
         [
             (
                 "system",
-                """You are an orchestration agent for an inbox assistant.
-Choose the single best agent to handle this email:
-- recruiter
-- scheduling
-- academic
-- support
-- billing
-- general
-
-Return ONLY valid JSON with this exact schema:
-{{
-  "selected_agent": "<one of: recruiter|scheduling|academic|support|billing|general>",
-  "rationale": "<short reason>",
-  "planned_actions": ["<action 1>", "<action 2>"]
-}}
-
-Use "general" for personal, mixed, low-signal, or unclear emails.
-Keep planned_actions concise and action-oriented.
-Do not include markdown or code fences.""",
+                """Pick one agent: recruiter|scheduling|academic|support|billing|general.
+Return ONLY JSON: {"selected_agent":"…","rationale":"short","planned_actions":["…","…"]}
+Use general for personal, spam, mixed, or unclear. Max 6 planned_actions; no markdown.""",
             ),
-            ("user", "Initial intent: {intent}\n\nEmail:\n{message}"),
+            ("user", "Intent: {intent}\n\nEmail:\n{message}"),
         ]
     )
 
     chain = prompt | model
-    response = chain.invoke({"intent": intent, "message": message})
+    response = chain.invoke({"intent": intent, "message": message[:8000]})
     raw = get_text_content(response).strip()
 
     selected_agent = _fallback_agent(intent)

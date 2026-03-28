@@ -33,22 +33,16 @@ def support_draft_reply(state: InboxPilotState) -> InboxPilotState:
 
 def support_extract_tasks(state: InboxPilotState) -> InboxPilotState:
     """Specialist task extraction for support messages."""
-    model = get_chat_model_for_state(state, temperature=0)
+    model = get_chat_model_for_state(state, temperature=0, model_tier="fast")
 
     message = state.get("normalized_message", state.get("raw_message", ""))
 
     prompt = ChatPromptTemplate.from_messages([
-        ("system", """Extract support-related tasks:
-        - Follow-up actions needed
-        - Information to gather
-        - Escalation requirements
-
-        Return a JSON array of tasks, each with:
-        - description: what needs to be done
-        - due_date: ISO format date if mentioned, null otherwise
-        - priority: low, medium, or high
-
-        Return ONLY valid JSON, no other text."""),
+        (
+            "system",
+            """Support tasks: follow-ups, info to gather, troubleshooting steps, escalations.
+Return ONLY JSON array: [{{"description":str,"due_date":str|null,"priority":"low"|"medium"|"high"}}] or [].""",
+        ),
         ("user", f"Message:\n{message}")
     ])
 

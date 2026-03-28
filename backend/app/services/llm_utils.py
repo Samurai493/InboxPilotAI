@@ -1,13 +1,15 @@
 """Unified chat model factory for OpenAI, Anthropic Claude, and Google Gemini."""
 from __future__ import annotations
 
-from typing import Any, Union
+from typing import Any, Literal, Union
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 
 from app.config import settings
 from app.graphs.state import InboxPilotState
+
+ModelTier = Literal["default", "fast"]
 
 
 def get_text_content(message: Union[BaseMessage, Any]) -> str:
@@ -35,6 +37,17 @@ def _norm_opt(s: str | None) -> str | None:
     return t if t else None
 
 
+def _fast_model_for_provider(provider: str) -> str:
+    """Default low-cost model per provider when ``LLM_FAST_MODEL`` is unset."""
+    if provider == "openai":
+        return (settings.OPENAI_MODEL or "gpt-4o-mini").strip()
+    if provider in ("anthropic", "claude"):
+        return "claude-3-5-haiku-20241022"
+    if provider in ("google_genai", "google", "gemini"):
+        return "gemini-2.5-flash"
+    return "gpt-4o-mini"
+
+
 def get_chat_model(
     *,
     temperature: float = 0.0,
@@ -43,11 +56,15 @@ def get_chat_model(
     openai_api_key: str | None = None,
     anthropic_api_key: str | None = None,
     gemini_api_key: str | None = None,
+    model_tier: ModelTier = "default",
 ) -> BaseChatModel:
     """
     Build the configured chat model.
 
     Optional ``provider`` / ``model`` override ``settings.LLM_PROVIDER`` / ``LLM_MODEL`` (e.g. from UI).
+
+    ``model_tier="fast"``: uses ``settings.LLM_FAST_MODEL`` if set, else a provider-specific
+    cheaper default; ignores the ``model`` argument so UI “main” model stays for drafts only.
 
     LLM_PROVIDER:
       - openai (default): requires OPENAI_API_KEY
@@ -59,20 +76,24 @@ def get_chat_model(
     p = _norm_opt(provider) or (settings.LLM_PROVIDER or "openai")
     provider = p.lower().strip()
 
-    m_override = _norm_opt(model)
-    if m_override:
-        model_name = m_override
-    elif settings.LLM_MODEL and settings.LLM_MODEL.strip():
-        model_name = settings.LLM_MODEL.strip()
-    elif provider == "openai":
-        model_name = (settings.OPENAI_MODEL or "gpt-4o-mini").strip()
-    elif provider in ("anthropic", "claude"):
-        model_name = "claude-3-5-sonnet-20241022"
-    elif provider in ("google_genai", "google", "gemini"):
-        # Google retires older IDs; use current stable names (see ai.google.dev Gemini API models).
-        model_name = "gemini-2.5-flash"
+    if model_tier == "fast":
+        fast = _norm_opt(settings.LLM_FAST_MODEL)
+        model_name = fast if fast else _fast_model_for_provider(provider)
     else:
-        model_name = "gpt-4o-mini"
+        m_override = _norm_opt(model)
+        if m_override:
+            model_name = m_override
+        elif settings.LLM_MODEL and settings.LLM_MODEL.strip():
+            model_name = settings.LLM_MODEL.strip()
+        elif provider == "openai":
+            model_name = (settings.OPENAI_MODEL or "gpt-4o-mini").strip()
+        elif provider in ("anthropic", "claude"):
+            model_name = "claude-3-5-sonnet-20241022"
+        elif provider in ("google_genai", "google", "gemini"):
+            # Google retires older IDs; use current stable names (see ai.google.dev Gemini API models).
+            model_name = "gemini-2.5-flash"
+        else:
+            model_name = "gpt-4o-mini"
 
     if provider == "openai":
         from langchain_openai import ChatOpenAI
@@ -122,7 +143,12 @@ def _str_key(state: InboxPilotState, name: str) -> str | None:
     return _norm_opt(v) if isinstance(v, str) else None
 
 
-def get_chat_model_for_state(state: InboxPilotState, *, temperature: float = 0.0) -> BaseChatModel:
+def get_chat_model_for_state(
+    state: InboxPilotState,
+    *,
+    temperature: float = 0.0,
+    model_tier: ModelTier = "default",
+) -> BaseChatModel:
     """Like ``get_chat_model`` but reads optional provider, model, and API keys from graph state."""
     lp = state.get("llm_provider")
     lm = state.get("llm_model")
@@ -131,8 +157,9 @@ def get_chat_model_for_state(state: InboxPilotState, *, temperature: float = 0.0
     return get_chat_model(
         temperature=temperature,
         provider=p,
-        model=m,
+        model=m if model_tier == "default" else None,
         openai_api_key=_str_key(state, "openai_api_key"),
         anthropic_api_key=_str_key(state, "anthropic_api_key"),
         gemini_api_key=_str_key(state, "gemini_api_key"),
+        model_tier=model_tier,
     )

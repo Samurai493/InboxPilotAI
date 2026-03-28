@@ -11,3 +11,6 @@ ENV/
 # OS / editor
 .DS_Store
 Thumbs.db
+
+# Root-level docs (context packs, session notes); keep out of remote if you prefer local-only
+/docs/

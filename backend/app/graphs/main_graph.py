@@ -62,23 +62,20 @@ def normalize_message(state: InboxPilotState) -> InboxPilotState:
 
 def classify_intent(state: InboxPilotState) -> InboxPilotState:
     """Classify message intent using LLM."""
-    model = get_chat_model_for_state(state, temperature=0)
-    
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", """You are an expert at classifying email messages. 
-        Classify the following message into one of these categories:
-        - recruiter: Job opportunities, networking, recruitment
-        - scheduling: Meeting requests, calendar invites, appointment scheduling
-        - academic: School-related, assignments, academic administration
-        - support: Technical support, customer service inquiries
-        - billing: Invoices, payments, financial transactions
-        - personal: Personal messages, casual communication
-        - spam: Unsolicited, promotional, or suspicious messages
-        
-        Respond with ONLY the category name, nothing else."""),
-        ("user", "Message:\n{message}")
-    ])
-    
+    model = get_chat_model_for_state(state, temperature=0, model_tier="fast")
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                """Classify into exactly one lowercase label: recruiter, scheduling, academic, support, billing, personal, spam.
+recruiter=jobs/networking; scheduling=meetings/calendar; academic=school; support=help/customer service; billing=money/invoices; personal=other non-spam; spam=unsolicited/suspicious.
+Reply with the single label only.""",
+            ),
+            ("user", "Message:\n{message}"),
+        ]
+    )
+
     message = state.get("normalized_message", state.get("raw_message", ""))
     chain = prompt | model
     response = chain.invoke({"message": message})
@@ -247,26 +244,37 @@ def draft_reply(state: InboxPilotState) -> InboxPilotState:
 
 def score_confidence(state: InboxPilotState) -> InboxPilotState:
     """Score confidence in the draft reply."""
-    model = get_chat_model_for_state(state, temperature=0)
-    
+    model = get_chat_model_for_state(state, temperature=0, model_tier="fast")
+
     draft = state.get("draft_reply", "")
-    message = state.get("normalized_message", state.get("raw_message", ""))
     intent = state.get("intent", "personal")
-    
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", """Rate the confidence score (0.0 to 1.0) for this draft reply.
-        Consider:
-        - Appropriateness for the message type
-        - Clarity and completeness
-        - Professionalism
-        - Risk of misunderstanding
-        
-        Respond with ONLY a number between 0.0 and 1.0, nothing else."""),
-        ("user", f"Message Type: {intent}\n\nOriginal Message:\n{message}\n\nDraft Reply:\n{draft}\n\nConfidence Score:")
-    ])
-    
+    summary = (state.get("email_summary") or "").strip()
+    if summary:
+        message_ctx = f"Email summary:\n{summary[:4000]}"
+    else:
+        raw = state.get("normalized_message", state.get("raw_message", ""))
+        message_ctx = f"Original message (truncated):\n{raw[:3000]}" + (
+            "…" if len(raw) > 3000 else ""
+        )
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                """Rate how appropriate this draft is for the email (0.0–1.0): fit, clarity, tone, misunderstanding risk.
+Reply with one decimal number only.""",
+            ),
+            (
+                "user",
+                "Intent: {intent}\n\n{message_ctx}\n\nDraft:\n{draft}\n\nScore:",
+            ),
+        ]
+    )
+
     chain = prompt | model
-    response = chain.invoke({})
+    response = chain.invoke(
+        {"intent": intent, "message_ctx": message_ctx, "draft": draft[:8000]}
+    )
     
     try:
         confidence = float(get_text_content(response).strip())
@@ -356,21 +364,20 @@ def human_review_interrupt(state: InboxPilotState):
 
 def extract_tasks(state: InboxPilotState) -> InboxPilotState:
     """Extract action items and deadlines."""
-    model = get_chat_model_for_state(state, temperature=0)
-    
+    model = get_chat_model_for_state(state, temperature=0, model_tier="fast")
+
     message = state.get("normalized_message", state.get("raw_message", ""))
-    
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", """Extract action items and deadlines from this message.
-        Return a JSON array of tasks, each with:
-        - description: what needs to be done
-        - due_date: ISO format date if mentioned, null otherwise
-        - priority: low, medium, or high
-        
-        If no tasks are found, return an empty array [].
-        Return ONLY valid JSON, no other text."""),
-        ("user", "Message:\n{message}")
-    ])
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                """Return ONLY a JSON array of tasks. Each object: {"description":str,"due_date":str|null ISO if known,"priority":"low"|"medium"|"high"}.
+Use [] if none.""",
+            ),
+            ("user", "Message:\n{message}"),
+        ]
+    )
     
     chain = prompt | model
     response = chain.invoke({"message": message})

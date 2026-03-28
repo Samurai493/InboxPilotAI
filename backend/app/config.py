@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     # LLM_PROVIDER: openai | anthropic | google_genai
     LLM_PROVIDER: str = "openai"
     LLM_MODEL: Optional[str] = None  # Defaults to OPENAI_MODEL when unset (OpenAI path)
+    # Optional cheaper model for classify / extract / confidence (ignored when unset; see llm_utils).
+    LLM_FAST_MODEL: Optional[str] = None
+    # When False (default), route specialists from classify_intent only (no extra LLM call).
+    ORCHESTRATION_USE_LLM: bool = False
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-4o-mini"
     ANTHROPIC_API_KEY: Optional[str] = None
