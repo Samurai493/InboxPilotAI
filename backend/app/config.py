@@ -36,10 +36,17 @@ class Settings(BaseSettings):
     LANGSMITH_PROJECT: Optional[str] = "inboxpilot-ai"
     LANGSMITH_TRACING: bool = True
     
+    # deployment / hardening
+    ENVIRONMENT: str = "development"
+    # When False, OpenAPI /docs and /redoc are disabled (recommended for production).
+    DOCS_ENABLED: bool = False
+
     # Security
     SECRET_KEY: str = "change-me-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    # Guest bootstrap JWT lifetime (browser sessions without Google sign-in).
+    GUEST_TOKEN_EXPIRE_DAYS: int = 30
 
     # Google OAuth (Gmail)
     GOOGLE_CLIENT_ID: Optional[str] = None
@@ -61,8 +68,8 @@ class Settings(BaseSettings):
     MAX_MESSAGE_LENGTH: int = 10000
 
     # When True, GET /api/v1/settings/env-template returns values loaded from backend .env (for Settings UI).
-    # Default True for local dev; set ENABLE_ENV_TEMPLATE_ENDPOINT=false in production (exposes secrets).
-    ENABLE_ENV_TEMPLATE_ENDPOINT: bool = True
+    # Default False — enable only on trusted local dev (exposes secrets).
+    ENABLE_ENV_TEMPLATE_ENDPOINT: bool = False
     
     class Config:
         env_file = ".env"

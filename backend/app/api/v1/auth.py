@@ -38,7 +38,7 @@ async def auth_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
 
 @router.get("/auth/me", response_model=AuthUserResponse)
 async def auth_me(current_user: User = Depends(get_current_user)):
-    """Return current user from Bearer Google ID token."""
+    """Return current user from Bearer token (Google ID token or guest access token from bootstrap)."""
     return _to_response(current_user)
 
 

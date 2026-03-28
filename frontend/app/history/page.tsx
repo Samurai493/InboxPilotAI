@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
-import { listWorkflowThreads } from '@/lib/api'
+import { getAuthHeaders, listWorkflowThreads } from '@/lib/api'
 import type { WorkflowThreadSummary } from '@/lib/api'
 import { getStoredUserId } from '@/lib/user-session'
 
@@ -13,8 +13,10 @@ export default function WorkflowHistoryPage() {
 
   const load = useCallback(async () => {
     const uid = getStoredUserId()
-    if (!uid) {
-      setError('Sign in on the home page first so your user id is available.')
+    if (!uid || !getAuthHeaders().Authorization) {
+      setError(
+        'Sign in on the home page with Google (or complete session bootstrap) so your user id and auth token are available.',
+      )
       setLoading(false)
       return
     }

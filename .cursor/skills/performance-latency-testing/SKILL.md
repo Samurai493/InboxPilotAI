@@ -1,6 +1,6 @@
 ---
 name: performance-latency-testing
-description: Measures and critiques end-to-end latency for pages, API calls, and heavy resources; ranks slowest operations and maps them to user-perceived expectations in a summary table. Use when the user asks about performance, slowness, load times, TTFB, LCP, API latency, waterfall analysis, or benchmarking the app’s responsiveness.
+description: Produces a fixed latency report every run—executive summary, ranked table, bottlenecks, wins, follow-ups, and narrative—by measuring pages, APIs, and heavy resources and mapping timings to user expectations. Use when the user asks about performance, slowness, load times, TTFB, LCP, API latency, waterfalls, benchmarking, or runs this skill explicitly.
 ---
 
 # Performance & Latency Testing
@@ -35,9 +35,33 @@ Treat latency as a **user experience** problem, not a single number. Prefer **ev
    - Automated: Playwright traces / HAR export if the project already uses them.
 3. For each measured item, record **how** it was measured (tool, cache on/off, throttle off/on).
 4. **Sort** all rows by the primary duration column (slowest first).
-5. Add a short **interpretation**: top 1–3 bottlenecks, likely cause class (payload, N+1, cold start, third party, render), next verification step.
+5. Emit the **Required output order** report (executive summary → table → `###` subsections → narrative); fold interpretation into **Top bottlenecks**, **Fastest wins**, and **Narrative** (cause classes: payload, N+1, cold start, third party, render).
 
-If blocked (no running app, no browser), still deliver a **measurement plan** and a **table template** filled with “TBD” and exact steps to capture numbers.
+If blocked (no running app, no browser), still deliver the **full structure below**: executive summary must state the blocker; table rows may use **TBD** with exact capture steps in **Follow-up measurements**.
+
+## Required output order (every execution)
+
+**Do not skip sections.** Use these exact `##` headings in this order so reports are comparable across runs.
+
+1. **`## Executive summary`** — 3–6 bullets, plain language:
+   - One line: **what was measured** (e.g. “API only, curl, localhost:8000”) and **overall takeaway** (acceptable / mixed / blocked).
+   - **Slowest meaningful item** (name + approximate duration) and whether it is **blocking UX** or **background**.
+   - **Caveats** in one line (e.g. no browser LCP, no Gmail auth, cold vs warm).
+   - If nothing was measurable: **why** and **single next step** to unblock.
+
+2. **`## Latency summary (slowest first)`** — the ranked markdown **table** (schema below). Sort by **Duration (primary)** descending. Include **failed connects**, **401/403/404** rows when those are the observed behavior (they still have latency).
+
+   Place steps **3–6** immediately **below the table** as `###` subsections of this `##` (do not insert another `##` between the table and **Measurement context**).
+
+3. **`### Measurement context`** — paragraph or bullets: tool(s), cache on/off, throttle, base URL(s), environment label (local/staging/prod-like), date.
+
+4. **`### Top bottlenecks (1–3)`** — numbered list; tie to user impact.
+
+5. **`### Fastest wins (low effort / high impact)`** — bullet list.
+
+6. **`### Follow-up measurements`** — bullet list of concrete next probes (e.g. “Browser Network: POST /process with throttle Fast 3G”).
+
+7. **`## Narrative`** — **5–12 sentences** in prose: what hurts users most, what is fine, what to verify next (SQL, Gmail batching, bundles, parallelism). No bullet list in this section.
 
 ## Method rules (keep results trustworthy)
 
@@ -61,32 +85,16 @@ Use this to label **Expected UX** and **Verdict** in the table. Adjust wording i
 
 Rough **guidance** for **blocking** UI actions on a fast connection (not a guarantee): under ~200ms toward Instant; ~200–800ms Snappy; ~0.8–2s Noticeable; over ~2s Frustrating unless clearly a heavy job with explicit progress.
 
-## Required output: ranked latency table
+## Table schema (inside `## Latency summary (slowest first)`)
 
-After measurements (or as a plan if blocked), output **this table first** (sorted slowest → fastest by **Duration (primary)**):
+Copy this table; replace cells with measured values or **TBD**:
 
 ```markdown
-## Latency summary (slowest first)
-
 | Rank | User-facing action / resource | Type | Metric | Duration (primary) | Also note | User expectation | Verdict |
 |------|----------------------------------|------|--------|--------------------|-----------|------------------|---------|
-| 1 | … | page / API / asset / redirect | e.g. total, TTFB, LCP | e.g. 1.25s median | p95, size, cache state | Instant / Snappy / … | Good / Poor / … |
+| 1 | … | page / API / asset / redirect | total, TTFB, LCP, etc. | e.g. 1.25s median | HTTP code, size, cache, repeats | Instant / Snappy / … | Good / Poor / … |
 | 2 | … | … | … | … | … | … | … |
-
-**Measurement context:** [tool, cache, throttle, environment, date]
-
-**Top bottlenecks (1–3):**
-1. …
-2. …
-
-**Fastest wins (low effort / high impact):**
-- …
-
-**Follow-up measurements:**
-- …
 ```
-
-Then add a short **narrative** (5–12 sentences): what hurts users most, what is acceptable, and what to verify next (e.g. backend SQL, Gmail batching, bundle size, waterfall parallelism).
 
 ## Severity for performance issues
 

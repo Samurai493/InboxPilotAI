@@ -19,7 +19,7 @@ import {
 import type { GmailMessageResponse, GmailMessagesPageResponse } from '@/lib/api'
 import type { GmailStatusResponse } from '@/lib/api'
 import { clearGoogleIdToken, getGoogleIdToken, setGoogleIdToken } from '@/lib/auth-session'
-import { setStoredUserId } from '@/lib/user-session'
+import { clearGuestAccessToken, setStoredUserId } from '@/lib/user-session'
 import { getGoogleClientIdForGis } from '@/lib/app-settings'
 import {
   clearGmailInboxPagesLocalStorage,
@@ -487,6 +487,7 @@ export default function Home() {
   const handleGoogleCredential = async (idToken: string) => {
     try {
       setSessionError(null)
+      clearGuestAccessToken()
       setGoogleIdToken(idToken)
       const user = await authenticateWithGoogleIdToken(idToken)
       setStoredUserId(user.user_id)
@@ -549,6 +550,7 @@ export default function Home() {
     }
     inboxSessionHydratedRef.current = false
     clearGoogleIdToken()
+    clearGuestAccessToken()
     detailAbortRef.current?.abort()
     detailAbortRef.current = null
     pendingDetailMessageIdRef.current = null

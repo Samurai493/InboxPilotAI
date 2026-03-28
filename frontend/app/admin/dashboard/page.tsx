@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { getApiBaseUrl } from '@/lib/app-settings'
+import { getAuthHeaders } from '@/lib/api'
 
 interface Metrics {
   total_threads: number
@@ -31,11 +32,17 @@ export default function AdminDashboard() {
       const response = await fetch(`${getApiBaseUrl()}/api/v1/metrics/summary`, {
         method: 'GET',
         headers: {
+          ...getAuthHeaders(),
           'Content-Type': 'application/json',
         },
       })
 
       if (!response.ok) {
+        if (response.status === 403) {
+          throw new Error(
+            'Admin access required. Set is_admin=true for your user in the database, then sign in again.',
+          )
+        }
         throw new Error(`HTTP error! status: ${response.status}`)
       }
 

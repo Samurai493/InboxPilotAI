@@ -1,14 +1,15 @@
 """Message processing endpoints."""
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
+from app.rate_limit import limiter
 from app.services.graph_service import GraphService
-from app.services.auth_service import get_current_user_optional, resolve_user_id_or_current
+from app.services.auth_service import get_current_user, require_user_context
 from app.services.workflow_thread_service import persist_workflow_thread
 
 router = APIRouter()
@@ -19,7 +20,7 @@ class ProcessMessageRequest(BaseModel):
     """Request model for message processing."""
 
     message: str
-    user_id: str | None = Field(default=None, description="users.id (UUID string)")
+    user_id: str | None = Field(default=None, description="users.id (UUID string); must match Bearer identity")
     gmail_message_id: str | None = Field(
         default=None,
         description="Gmail API message id when processing an inbox email (for durable thread history).",
@@ -43,6 +44,7 @@ class ProcessMessageRequest(BaseModel):
 
 class ProcessMessageResponse(BaseModel):
     """Response model for message processing."""
+
     thread_id: str
     status: str
     state: dict | None = None
@@ -50,32 +52,28 @@ class ProcessMessageResponse(BaseModel):
 
 
 @router.post("/process", response_model=ProcessMessageResponse)
+@limiter.limit("60/minute")
 async def process_message(
-    request: ProcessMessageRequest,
+    request_body: ProcessMessageRequest,
+    request: Request,
     db: Session = Depends(get_db),
-    current_user: User | None = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Process a message through the workflow.
-    
-    Args:
-        request: Message processing request
-        
-    Returns:
-        Thread ID and processing status
     """
     try:
-        user_id = resolve_user_id_or_current(request.user_id, current_user)
+        user_id = require_user_context(current_user, request_body.user_id)
         result = GraphService.process_message(
             user_id=user_id,
-            raw_message=request.message,
-            message_id=request.gmail_message_id,
-            use_specialist=request.use_specialist,
-            llm_provider=request.llm_provider,
-            llm_model=request.llm_model,
-            openai_api_key=request.openai_api_key,
-            anthropic_api_key=request.anthropic_api_key,
-            gemini_api_key=request.gemini_api_key,
+            raw_message=request_body.message,
+            message_id=request_body.gmail_message_id,
+            use_specialist=request_body.use_specialist,
+            llm_provider=request_body.llm_provider,
+            llm_model=request_body.llm_model,
+            openai_api_key=request_body.openai_api_key,
+            anthropic_api_key=request_body.anthropic_api_key,
+            gemini_api_key=request_body.gemini_api_key,
         )
 
         try:
@@ -86,7 +84,7 @@ async def process_message(
                 status=result["status"],
                 state=result.get("state"),
                 trace_id=result.get("trace_id"),
-                gmail_message_id=request.gmail_message_id,
+                gmail_message_id=request_body.gmail_message_id,
                 error_message=result.get("error"),
             )
         except Exception:
@@ -99,16 +97,18 @@ async def process_message(
             thread_id=result["thread_id"],
             status=result["status"],
             state=result.get("state"),
-            error=result.get("error")
+            error=result.get("error"),
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(
             "Unhandled error in /process",
             extra={
-                "user_id": request.user_id,
-                "use_specialist": request.use_specialist,
-                "llm_provider": request.llm_provider,
-                "llm_model": request.llm_model,
+                "user_id": request_body.user_id,
+                "use_specialist": request_body.use_specialist,
+                "llm_provider": request_body.llm_provider,
+                "llm_model": request_body.llm_model,
             },
         )
         raise HTTPException(status_code=500, detail=str(e))

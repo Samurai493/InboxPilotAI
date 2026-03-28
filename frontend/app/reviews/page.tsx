@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getApiBaseUrl } from '@/lib/app-settings'
+import { getAuthHeaders } from '@/lib/api'
 
 interface Review {
   id: string
@@ -31,6 +32,7 @@ export default function ReviewsPage() {
       const response = await fetch(`${getApiBaseUrl()}/api/v1/reviews/pending`, {
         method: 'GET',
         headers: {
+          ...getAuthHeaders(),
           'Content-Type': 'application/json',
         },
       })
@@ -53,6 +55,7 @@ export default function ReviewsPage() {
       const response = await fetch(`${getApiBaseUrl()}/api/v1/reviews/${reviewId}/approve`, {
         method: 'POST',
         headers: {
+          ...getAuthHeaders(),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -77,6 +80,7 @@ export default function ReviewsPage() {
       const response = await fetch(`${getApiBaseUrl()}/api/v1/reviews/${reviewId}/reject`, {
         method: 'POST',
         headers: {
+          ...getAuthHeaders(),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({

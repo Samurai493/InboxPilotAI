@@ -16,7 +16,7 @@ from app.services.gmail_oauth import (
 )
 from app.services.gmail_service import GmailService
 from app.models.user import User
-from app.services.auth_service import get_current_user_optional, resolve_user_id_or_current
+from app.services.auth_service import get_current_user, require_user_context
 
 router = APIRouter()
 
@@ -34,12 +34,6 @@ class GmailMessageResponse(BaseModel):
 
 class GmailAuthorizeResponse(BaseModel):
     authorization_url: str
-
-
-class GmailCallbackResponse(BaseModel):
-    status: str
-    user_id: str
-    google_account_email: str | None
 
 
 class GmailStatusResponse(BaseModel):
@@ -80,10 +74,10 @@ def _credentials_or_404(db: Session, user_id: str):
 async def gmail_oauth_authorize(
     user_id: str | None = None,
     db: Session = Depends(get_db),
-    current_user: User | None = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
 ):
     """Start OAuth: returns Google authorization URL. user_id must be users.id (UUID)."""
-    uid = _user_uuid_param(resolve_user_id_or_current(user_id, current_user))
+    uid = _user_uuid_param(require_user_context(current_user, user_id))
     user = db.query(User).filter(User.id == uid).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -99,7 +93,7 @@ async def gmail_oauth_callback(request: Request, db: Session = Depends(get_db)):
     """OAuth redirect target: exchanges code and stores tokens for the user UUID in state."""
     url = str(request.url)
     try:
-        row = complete_oauth(db, url)
+        complete_oauth(db, url)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
@@ -108,15 +102,19 @@ async def gmail_oauth_callback(request: Request, db: Session = Depends(get_db)):
         # Catch-all to avoid opaque 500s during OAuth handshakes.
         raise HTTPException(status_code=500, detail=f"OAuth callback failed: {e}")
     # Google hits this URL in the browser as part of the OAuth redirect flow.
-    # Redirect back to the frontend so it can call /gmail/status/{user_id} and load messages.
+    # Redirect back to the frontend so it can call /gmail/status and load messages.
     frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3002")
     return RedirectResponse(url=f"{frontend_url}/?gmail_connected=1")
 
 
 @router.get("/gmail/status/{user_id}", response_model=GmailStatusResponse)
-async def gmail_status(user_id: str, db: Session = Depends(get_db)):
-    """Whether Gmail OAuth is stored for this user."""
-    uid = _user_uuid_param(user_id)
+async def gmail_status(
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Whether Gmail OAuth is stored for this user (authenticated, self only)."""
+    uid = _user_uuid_param(require_user_context(current_user, user_id))
 
     row = db.query(GmailCredential).filter(GmailCredential.user_id == uid).first()
     if not row:
@@ -127,10 +125,10 @@ async def gmail_status(user_id: str, db: Session = Depends(get_db)):
 @router.get("/gmail/status/me", response_model=GmailStatusResponse)
 async def gmail_status_me(
     db: Session = Depends(get_db),
-    current_user: User | None = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
 ):
     """Whether Gmail OAuth is stored for the authenticated user."""
-    uid = _user_uuid_param(resolve_user_id_or_current(None, current_user))
+    uid = _user_uuid_param(str(current_user.id))
     row = db.query(GmailCredential).filter(GmailCredential.user_id == uid).first()
     if not row:
         return GmailStatusResponse(connected=False)
@@ -138,9 +136,13 @@ async def gmail_status_me(
 
 
 @router.delete("/gmail/connection/{user_id}")
-async def gmail_disconnect(user_id: str, db: Session = Depends(get_db)):
-    """Remove stored Gmail tokens for this user."""
-    uid = _user_uuid_param(user_id)
+async def gmail_disconnect(
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Remove stored Gmail tokens for this user (authenticated, self only)."""
+    uid = _user_uuid_param(require_user_context(current_user, user_id))
     if not delete_gmail_connection(db, uid):
         raise HTTPException(status_code=404, detail="Gmail not connected")
     return {"status": "disconnected", "user_id": str(uid)}
@@ -151,11 +153,11 @@ async def list_gmail_messages(
     user_id: str | None = None,
     max_results: int = 10,
     db: Session = Depends(get_db),
-    current_user: User | None = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
 ):
     """List inbox messages for the connected Gmail account."""
-    user_id = resolve_user_id_or_current(user_id, current_user)
-    creds = _credentials_or_404(db, user_id)
+    resolved = require_user_context(current_user, user_id)
+    creds = _credentials_or_404(db, resolved)
     try:
         svc = GmailService(credentials=creds)
         rows = svc.list_message_summaries(max_results=max_results)
@@ -170,11 +172,11 @@ async def list_gmail_messages_page(
     max_results: int = 50,
     page_token: str | None = None,
     db: Session = Depends(get_db),
-    current_user: User | None = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
 ):
     """List one inbox page and a token for loading the next page."""
-    user_id = resolve_user_id_or_current(user_id, current_user)
-    creds = _credentials_or_404(db, user_id)
+    resolved = require_user_context(current_user, user_id)
+    creds = _credentials_or_404(db, resolved)
     try:
         svc = GmailService(credentials=creds)
         page = svc.list_message_summaries_page(max_results=max_results, page_token=page_token)
@@ -191,11 +193,11 @@ async def get_gmail_message(
     message_id: str,
     user_id: str | None = None,
     db: Session = Depends(get_db),
-    current_user: User | None = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
 ):
     """Get one message by Gmail id."""
-    user_id = resolve_user_id_or_current(user_id, current_user)
-    creds = _credentials_or_404(db, user_id)
+    resolved = require_user_context(current_user, user_id)
+    creds = _credentials_or_404(db, resolved)
     try:
         svc = GmailService(credentials=creds)
         raw = svc.get_message(message_id)
@@ -216,11 +218,11 @@ async def create_gmail_draft(
     payload: GmailDraftRequest,
     user_id: str | None = None,
     db: Session = Depends(get_db),
-    current_user: User | None = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
 ):
     """Create a Gmail draft for the connected account."""
-    user_id = resolve_user_id_or_current(user_id, current_user)
-    creds = _credentials_or_404(db, user_id)
+    resolved = require_user_context(current_user, user_id)
+    creds = _credentials_or_404(db, resolved)
     try:
         svc = GmailService(credentials=creds)
         return svc.create_draft(payload.to, payload.subject, payload.body)

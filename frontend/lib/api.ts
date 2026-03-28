@@ -2,7 +2,7 @@
  * API client for InboxPilot AI backend
  */
 
-import { getStoredUserId } from '@/lib/user-session'
+import { getGuestAccessToken, getStoredUserId } from '@/lib/user-session'
 import { getGoogleIdToken } from '@/lib/auth-session'
 import {
   getApiBaseUrl,
@@ -14,20 +14,21 @@ import {
 export { getApiBaseUrl } from '@/lib/app-settings'
 
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
-  const token = getGoogleIdToken()
+  const token = getGoogleIdToken() || getGuestAccessToken()
   return {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(extra ?? {}),
   }
 }
 
+/** For pages that do not import the full API helper set. */
+export function getAuthHeaders(extra?: Record<string, string>): Record<string, string> {
+  return authHeaders(extra)
+}
+
 /** Must match a row in users.id (UUID). From localStorage (home bootstrap), env, or explicit arg. */
 function resolveUserId(explicit?: string): string | undefined {
-  const id =
-    explicit ??
-    getStoredUserId() ??
-    getDefaultUserIdFromSettings() ??
-    process.env.NEXT_PUBLIC_DEFAULT_USER_ID
+  const id = explicit ?? getStoredUserId() ?? getDefaultUserIdFromSettings()
   return id
 }
 

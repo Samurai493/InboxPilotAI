@@ -22,6 +22,25 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+def _ensure_users_is_admin_column() -> None:
+    """Add is_admin for legacy databases (create_all does not ALTER)."""
+    if not settings.DATABASE_URL.startswith("postgresql"):
+        return
+    try:
+        insp = inspect(engine)
+    except Exception:
+        return
+    if not insp.has_table("users"):
+        return
+    col_names = {c["name"] for c in insp.get_columns("users")}
+    if "is_admin" in col_names:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT false")
+        )
+
+
 def _ensure_threads_history_columns() -> None:
     """Align legacy ``threads`` rows with the ORM (create_all never ALTERs existing tables)."""
     if not settings.DATABASE_URL.startswith("postgresql"):
@@ -61,6 +80,7 @@ def init_db():
     import app.models  # noqa: F401 — register models on Base.metadata
 
     Base.metadata.create_all(bind=engine)
+    _ensure_users_is_admin_column()
     _ensure_threads_history_columns()
 
 

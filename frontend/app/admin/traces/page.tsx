@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { getApiBaseUrl } from '@/lib/app-settings'
+import { getAuthHeaders } from '@/lib/api'
 
 export default function TracesPage() {
   const [traceId, setTraceId] = useState('')
@@ -15,6 +16,7 @@ export default function TracesPage() {
       const response = await fetch(`${getApiBaseUrl()}/api/v1/traces/${traceId}`, {
         method: 'GET',
         headers: {
+          ...getAuthHeaders(),
           'Content-Type': 'application/json',
         },
       })

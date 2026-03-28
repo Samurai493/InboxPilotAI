@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { getApiBaseUrl } from '@/lib/app-settings'
+import { getAuthHeaders } from '@/lib/api'
 
 interface HistoryEntry {
   checkpoint_id?: string
@@ -30,6 +31,7 @@ export default function ThreadTimelinePage() {
         const response = await fetch(`${getApiBaseUrl()}/api/v1/threads/${threadId}/history`, {
           method: 'GET',
           headers: {
+            ...getAuthHeaders(),
             'Content-Type': 'application/json',
           },
         })

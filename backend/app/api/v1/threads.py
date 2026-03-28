@@ -7,9 +7,10 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
-from app.services.auth_service import get_current_user_optional, resolve_user_id_or_current
+from app.services.auth_service import get_current_user, require_user_context
 from app.services.graph_service import GraphService
 from app.services.workflow_thread_service import (
+    get_thread_row_by_langgraph_id,
     latest_thread_for_gmail_message,
     list_threads_for_user,
 )
@@ -71,10 +72,10 @@ async def list_threads(
     user_id: str | None = None,
     limit: int = 50,
     db: Session = Depends(get_db),
-    current_user: User | None = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
 ):
     """List persisted workflow runs for the user (newest first)."""
-    uid = resolve_user_id_or_current(user_id, current_user)
+    uid = require_user_context(current_user, user_id)
     try:
         rows = list_threads_for_user(db, uid, limit=limit)
     except ValueError as e:
@@ -87,10 +88,10 @@ async def get_latest_thread_for_gmail_message(
     gmail_message_id: str,
     user_id: str | None = None,
     db: Session = Depends(get_db),
-    current_user: User | None = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
 ):
     """Return the most recent persisted run for this Gmail message id (same user)."""
-    uid = resolve_user_id_or_current(user_id, current_user)
+    uid = require_user_context(current_user, user_id)
     try:
         row = latest_thread_for_gmail_message(db, uid, gmail_message_id)
     except ValueError as e:
@@ -109,12 +110,12 @@ async def get_thread(
     thread_id: str,
     user_id: str | None = None,
     db: Session = Depends(get_db),
-    current_user: User | None = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Get thread state from the LangGraph checkpointer when available, else from the database snapshot.
     """
-    uid = resolve_user_id_or_current(user_id, current_user)
+    uid = require_user_context(current_user, user_id)
 
     try:
         result = GraphService.get_thread_state(thread_id, db=db, request_user_id=uid)
@@ -137,16 +138,49 @@ async def get_thread(
     )
 
 
+def _assert_thread_owned(db: Session, thread_id: str, current_user: User) -> None:
+    """Ensure checkpoint or DB row belongs to current_user."""
+    from app.graphs.main_graph import graph
+
+    config = {"configurable": {"thread_id": thread_id}}
+    try:
+        state = graph.get_state(config)
+    except Exception:
+        state = None
+
+    if state and getattr(state, "values", None):
+        uid_in_state = state.values.get("user_id")
+        if uid_in_state is not None:
+            if str(uid_in_state) != str(current_user.id):
+                raise HTTPException(status_code=403, detail="Forbidden")
+            return
+
+    row = get_thread_row_by_langgraph_id(db, thread_id)
+    if row:
+        if row.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        return
+
+    # No state and no row — let handler return not_found without leaking existence
+    return
+
+
 @router.get("/threads/{thread_id}/history")
-async def get_thread_history(thread_id: str):
+async def get_thread_history(
+    thread_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """
     Get thread execution history (checkpoint history).
     """
+    _assert_thread_owned(db, thread_id, current_user)
+
     from app.graphs.main_graph import graph
 
     config = {
         "configurable": {
-            "thread_id": thread_id
+            "thread_id": thread_id,
         }
     }
 
@@ -155,18 +189,22 @@ async def get_thread_history(thread_id: str):
         state = graph.get_state(config)
 
         if state:
-            history.append({
-                "checkpoint_id": getattr(state, "id", None),
-                "values": state.values if hasattr(state, "values") else None,
-                "metadata": state.metadata if hasattr(state, "metadata") else None,
-                "parent_checkpoint_id": getattr(state, "parent_checkpoint_id", None)
-            })
+            history.append(
+                {
+                    "checkpoint_id": getattr(state, "id", None),
+                    "values": state.values if hasattr(state, "values") else None,
+                    "metadata": state.metadata if hasattr(state, "metadata") else None,
+                    "parent_checkpoint_id": getattr(state, "parent_checkpoint_id", None),
+                }
+            )
 
         return {
             "thread_id": thread_id,
             "history": history,
-            "status": "found" if history else "not_found"
+            "status": "found" if history else "not_found",
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(
             "Unhandled error in GET /api/v1/threads/{thread_id}/history",
