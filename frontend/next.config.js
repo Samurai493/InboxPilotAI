@@ -1,6 +1,13 @@
 /** @type {import('next').NextConfig} */
+const path = require('path')
+
 const isProd = process.env.NODE_ENV === 'production'
 const nextConfig = {
+  // Lockfile in the user profile (e.g. C:\Users\...\package-lock.json) can be
+  // picked up before frontend/; pin Turbopack’s filesystem root to this app.
+  turbopack: {
+    root: path.resolve(__dirname),
+  },
   reactStrictMode: true,
   async headers() {
     // Production: drop unsafe-eval where Next allows (dev/HMR still needs eval).
