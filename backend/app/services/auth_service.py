@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 import jwt
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import id_token as google_id_token
@@ -29,8 +29,8 @@ def _verify_google_token(token: str) -> dict:
             GoogleRequest(),
             settings.GOOGLE_CLIENT_ID,
         )
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Invalid Google ID token: {e}")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid Google ID token")
 
 
 def upsert_user_from_google_token(db: Session, token: str) -> User:
@@ -53,7 +53,13 @@ def upsert_user_from_google_token(db: Session, token: str) -> User:
 
 
 def create_guest_access_token(user_id: UUID) -> str:
-    """HS256 JWT for browser guests (bootstrap users). Not a Google token."""
+    """
+    HS256 JWT for browser guests (bootstrap users). Not a Google token.
+
+    Tokens are returned in JSON today (typical SPA + localStorage). For stronger XSS resistance,
+    move to an httpOnly, Secure, SameSite cookie on bootstrap and stop exposing the raw JWT to
+    JavaScript; the backend would read the cookie and validate like Bearer.
+    """
     exp = datetime.now(timezone.utc) + timedelta(days=settings.GUEST_TOKEN_EXPIRE_DAYS)
     payload = {
         "sub": str(user_id),
@@ -79,19 +85,24 @@ def user_from_guest_token(db: Session, token: str) -> User | None:
 
 
 def get_current_user_optional(
+    request: Request,
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
     db: Session = Depends(get_db),
 ) -> User | None:
-    if not creds:
-        return None
-    token = creds.credentials
-    user = user_from_guest_token(db, token)
-    if user:
-        return user
-    try:
-        return upsert_user_from_google_token(db, token)
-    except HTTPException:
-        return None
+    if creds:
+        token = creds.credentials
+        user = user_from_guest_token(db, token)
+        if user:
+            return user
+        try:
+            return upsert_user_from_google_token(db, token)
+        except HTTPException:
+            return None
+
+    cookie_token = request.cookies.get(settings.GUEST_SESSION_COOKIE_NAME)
+    if cookie_token:
+        return user_from_guest_token(db, cookie_token)
+    return None
 
 
 def get_current_user(

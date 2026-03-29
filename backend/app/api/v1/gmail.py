@@ -1,6 +1,6 @@
 """Gmail integration: per-user OAuth (users.id UUID) and API calls."""
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -13,6 +13,8 @@ from app.services.gmail_oauth import (
     delete_gmail_connection,
     get_gmail_credentials,
     require_user_uuid,
+    sign_gmail_oauth_binding,
+    verify_gmail_oauth_binding,
 )
 from app.services.gmail_service import GmailService
 from app.models.user import User
@@ -83,28 +85,67 @@ async def gmail_oauth_authorize(
         raise HTTPException(status_code=404, detail="User not found")
     try:
         url = create_authorization_url(uid)
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    return GmailAuthorizeResponse(authorization_url=url)
+    except RuntimeError:
+        raise HTTPException(
+            status_code=503,
+            detail="Gmail OAuth is not configured or temporarily unavailable.",
+        )
+    secure = settings.ENVIRONMENT.lower() == "production"
+    binding = sign_gmail_oauth_binding(uid)
+    resp = JSONResponse(content={"authorization_url": url})
+    resp.set_cookie(
+        key=settings.GMAIL_OAUTH_BINDING_COOKIE_NAME,
+        value=binding,
+        max_age=900,
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        path="/",
+    )
+    return resp
 
 
 @router.get("/gmail/oauth/callback")
 async def gmail_oauth_callback(request: Request, db: Session = Depends(get_db)):
     """OAuth redirect target: exchanges code and stores tokens for the user UUID in state."""
     url = str(request.url)
+    raw_cookie = request.cookies.get(settings.GMAIL_OAUTH_BINDING_COOKIE_NAME)
+    binding_uid = None
+    if raw_cookie:
+        try:
+            binding_uid = verify_gmail_oauth_binding(raw_cookie)
+        except ValueError:
+            binding_uid = None
     try:
-        complete_oauth(db, url)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        # Catch-all to avoid opaque 500s during OAuth handshakes.
-        raise HTTPException(status_code=500, detail=f"OAuth callback failed: {e}")
+        complete_oauth(db, url, cookie_binding_user_id=binding_uid)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Gmail connection failed. Start the connection again from the app.",
+        )
+    except RuntimeError:
+        raise HTTPException(
+            status_code=503,
+            detail="Gmail OAuth is temporarily unavailable. Try again later.",
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="Gmail connection failed due to a server error. Try again later.",
+        )
     # Google hits this URL in the browser as part of the OAuth redirect flow.
     # Redirect back to the frontend so it can call /gmail/status and load messages.
     frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3002")
-    return RedirectResponse(url=f"{frontend_url}/?gmail_connected=1")
+    response = RedirectResponse(url=f"{frontend_url}/?gmail_connected=1")
+    secure = settings.ENVIRONMENT.lower() == "production"
+    response.delete_cookie(
+        settings.GMAIL_OAUTH_BINDING_COOKIE_NAME,
+        path="/",
+        secure=secure,
+        httponly=True,
+        samesite="lax",
+    )
+    return response
 
 
 @router.get("/gmail/status/{user_id}", response_model=GmailStatusResponse)
@@ -162,8 +203,11 @@ async def list_gmail_messages(
         svc = GmailService(credentials=creds)
         rows = svc.list_message_summaries(max_results=max_results)
         return [GmailMessageResponse(**r) for r in rows]
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
+    except Exception:
+        raise HTTPException(
+            status_code=502,
+            detail="Gmail request failed. Try again later.",
+        )
 
 
 @router.get("/gmail/messages/page", response_model=GmailMessagesPageResponse)
@@ -184,8 +228,11 @@ async def list_gmail_messages_page(
             messages=[GmailMessageResponse(**r) for r in page.get("messages", [])],
             next_page_token=page.get("next_page_token"),
         )
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
+    except Exception:
+        raise HTTPException(
+            status_code=502,
+            detail="Gmail request failed. Try again later.",
+        )
 
 
 @router.get("/gmail/messages/{message_id}", response_model=GmailMessageResponse)
@@ -209,8 +256,11 @@ async def get_gmail_message(
             body=raw["body"],
             snippet=raw["snippet"],
         )
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
+    except Exception:
+        raise HTTPException(
+            status_code=502,
+            detail="Gmail request failed. Try again later.",
+        )
 
 
 @router.post("/gmail/drafts")
@@ -226,5 +276,8 @@ async def create_gmail_draft(
     try:
         svc = GmailService(credentials=creds)
         return svc.create_draft(payload.to, payload.subject, payload.body)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
+    except Exception:
+        raise HTTPException(
+            status_code=502,
+            detail="Gmail request failed. Try again later.",
+        )

@@ -147,13 +147,10 @@ export function buildBackendEnvFileContent(s: AppSettings): string {
   }
   add('LLM_PROVIDER', s.llmProvider?.trim() || undefined)
   add('LLM_MODEL', s.llmModel?.trim() || undefined)
-  add('OPENAI_API_KEY', s.openaiApiKey)
   add(
     'OPENAI_MODEL',
     s.llmProvider === 'openai' ? (s.llmModel?.trim() || s.openaiModel?.trim() || undefined) : undefined,
   )
-  add('ANTHROPIC_API_KEY', s.anthropicApiKey)
-  add('GEMINI_API_KEY', s.geminiApiKey)
   add('LANGSMITH_API_KEY', s.langsmithApiKey)
   add('LANGSMITH_PROJECT', s.langsmithProject || undefined)
   add('LANGSMITH_TRACING', s.langsmithTracing)

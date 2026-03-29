@@ -3,6 +3,7 @@ from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
 from app.models.user_preference import UserPreference
 from app.models.user import User
+from app.services.preference_sanitizer import sanitize_preferences_dict
 import uuid
 
 
@@ -32,14 +33,25 @@ class MemoryService:
         
         if not preference:
             return None
-        
-        return {
+
+        raw = {
             "tone": preference.tone,
             "reply_style": preference.reply_style,
             "signature": preference.signature,
             "auto_reply_enabled": preference.auto_reply_enabled == "true",
-            "review_threshold": float(preference.review_threshold)
+            "review_threshold": float(preference.review_threshold),
         }
+        sani = sanitize_preferences_dict(
+            {
+                "tone": raw["tone"],
+                "reply_style": raw["reply_style"],
+                "signature": raw["signature"],
+            }
+        )
+        raw["tone"] = sani["tone"]
+        raw["reply_style"] = sani["reply_style"]
+        raw["signature"] = sani.get("signature")
+        return raw
     
     @staticmethod
     def create_or_update_preferences(
@@ -70,7 +82,9 @@ class MemoryService:
         if not preference:
             preference = UserPreference(user_id=user_uuid)
             db.add(preference)
-        
+
+        preferences = sanitize_preferences_dict(preferences) if preferences else preferences
+
         # Update fields
         if "tone" in preferences:
             preference.tone = preferences["tone"]

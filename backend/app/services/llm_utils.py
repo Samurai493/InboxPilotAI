@@ -138,18 +138,16 @@ def get_chat_model(
     )
 
 
-def _str_key(state: InboxPilotState, name: str) -> str | None:
-    v = state.get(name)
-    return _norm_opt(v) if isinstance(v, str) else None
-
-
 def get_chat_model_for_state(
     state: InboxPilotState,
     *,
     temperature: float = 0.0,
     model_tier: ModelTier = "default",
 ) -> BaseChatModel:
-    """Like ``get_chat_model`` but reads optional provider, model, and API keys from graph state."""
+    """Like ``get_chat_model`` but reads provider/model from state and API keys from request context."""
+    from app.services.llm_request_context import get_request_llm_api_keys
+
+    co, ca, cg = get_request_llm_api_keys()
     lp = state.get("llm_provider")
     lm = state.get("llm_model")
     p = lp.strip() if isinstance(lp, str) and lp.strip() else None
@@ -158,8 +156,8 @@ def get_chat_model_for_state(
         temperature=temperature,
         provider=p,
         model=m if model_tier == "default" else None,
-        openai_api_key=_str_key(state, "openai_api_key"),
-        anthropic_api_key=_str_key(state, "anthropic_api_key"),
-        gemini_api_key=_str_key(state, "gemini_api_key"),
+        openai_api_key=_norm_opt(co),
+        anthropic_api_key=_norm_opt(ca),
+        gemini_api_key=_norm_opt(cg),
         model_tier=model_tier,
     )

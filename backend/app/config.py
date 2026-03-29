@@ -1,11 +1,14 @@
 """Configuration management for InboxPilot AI."""
-from pydantic_settings import BaseSettings
 from typing import Optional
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """Application settings."""
-    
+
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
+
     # API Configuration
     API_V1_PREFIX: str = "/api/v1"
     PROJECT_NAME: str = "InboxPilot AI"
@@ -30,7 +33,11 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: Optional[str] = None
     # Gemini (Google AI Studio) — not the same as Gmail OAuth client secret
     GEMINI_API_KEY: Optional[str] = None
-    
+    # Fernet key (urlsafe base64) for encrypting per-user LLM API keys at rest. Strongly recommended in production.
+    LLM_CREDENTIALS_FERNET_KEY: Optional[str] = None
+    # When False, POST /process ignores LLM keys in the JSON body (use encrypted DB row + env fallback). Recommended False in production.
+    ALLOW_LLM_API_KEYS_IN_REQUEST_BODY: bool = True
+
     # LangSmith
     LANGSMITH_API_KEY: Optional[str] = None
     LANGSMITH_PROJECT: Optional[str] = "inboxpilot-ai"
@@ -45,8 +52,14 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    # Guest bootstrap JWT lifetime (browser sessions without Google sign-in).
-    GUEST_TOKEN_EXPIRE_DAYS: int = 30
+    # Guest bootstrap JWT lifetime (browser sessions without Google sign-in). Shorter = smaller theft window.
+    GUEST_TOKEN_EXPIRE_DAYS: int = 7
+
+    # Per-user /process cap (sliding 1h window, in-process; use Redis for multi-worker).
+    PROCESS_QUOTA_PER_HOUR: int = 40
+
+    # In production, refuse to start if slowapi is not installed (rate limits required).
+    REQUIRE_SLOWAPI_IN_PRODUCTION: bool = True
 
     # Google OAuth (Gmail)
     GOOGLE_CLIENT_ID: Optional[str] = None
@@ -70,10 +83,10 @@ class Settings(BaseSettings):
     # When True, GET /api/v1/settings/env-template returns values loaded from backend .env (for Settings UI).
     # Default False — enable only on trusted local dev (exposes secrets).
     ENABLE_ENV_TEMPLATE_ENDPOINT: bool = False
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+
+    # httpOnly cookies (guest session, Gmail OAuth CSRF binding). Secure=True in production only.
+    GUEST_SESSION_COOKIE_NAME: str = "inboxpilot_guest"
+    GMAIL_OAUTH_BINDING_COOKIE_NAME: str = "gmail_oauth_binding"
 
 
 settings = Settings()

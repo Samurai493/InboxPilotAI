@@ -13,6 +13,11 @@ import {
 
 export { getApiBaseUrl } from '@/lib/app-settings'
 
+/** Cross-origin session cookies (guest + Gmail OAuth binding) require credentials. */
+function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return fetch(input, { ...init, credentials: 'include' })
+}
+
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
   const token = getGoogleIdToken() || getGuestAccessToken()
   return {
@@ -35,7 +40,7 @@ function resolveUserId(explicit?: string): string | undefined {
 export interface ProcessMessageResponse {
   thread_id: string
   status: string
-  state?: any
+  state?: Record<string, unknown> | null
   error?: string
 }
 
@@ -51,7 +56,7 @@ export interface PublicAuthConfigResponse {
 
 export interface ThreadStateResponse {
   thread_id: string
-  state: any
+  state: Record<string, unknown> | null
   status: string
   error?: string
   /** Present when state was loaded from DB snapshot (checkpointer empty). */
@@ -87,9 +92,16 @@ export interface ProcessMessageOptions {
   /** Override saved Settings for this request only (e.g. tests). */
   llm_provider?: string
   llm_model?: string
+  /** Rare: send keys in POST body (requires ALLOW_LLM_API_KEYS_IN_REQUEST_BODY on server). Prefer server-stored keys. */
   openai_api_key?: string
   anthropic_api_key?: string
   gemini_api_key?: string
+}
+
+export interface LlmCredentialsStatus {
+  has_openai: boolean
+  has_anthropic: boolean
+  has_gemini: boolean
 }
 
 /**
@@ -119,12 +131,9 @@ export async function processMessage(
     const s = loadAppSettings()
     body.llm_provider = s.llmProvider?.trim() || 'openai'
     if (s.llmModel?.trim()) body.llm_model = s.llmModel.trim()
-    if (s.openaiApiKey?.trim()) body.openai_api_key = s.openaiApiKey.trim()
-    if (s.anthropicApiKey?.trim()) body.anthropic_api_key = s.anthropicApiKey.trim()
-    if (s.geminiApiKey?.trim()) body.gemini_api_key = s.geminiApiKey.trim()
   }
 
-  const response = await fetch(`${getApiBaseUrl()}/api/v1/process`, {
+  const response = await apiFetch(`${getApiBaseUrl()}/api/v1/process`, {
     method: 'POST',
     headers: {
       ...authHeaders(),
@@ -148,6 +157,50 @@ export async function processMessage(
   return response.json()
 }
 
+export async function getLlmCredentialsStatus(userId?: string): Promise<LlmCredentialsStatus> {
+  const uid = resolveUserId(userId)
+  if (!uid) throw new Error('User id required for LLM credentials status')
+  const url = `${getApiBaseUrl()}/api/v1/users/${encodeURIComponent(uid)}/llm-credentials/status`
+  const response = await apiFetch(url, {
+    method: 'GET',
+    headers: authHeaders({ Accept: 'application/json' }),
+  })
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}))
+    const detail = (err as { detail?: string }).detail
+    throw new Error(detail || `HTTP ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function putLlmCredentials(
+  userId: string | undefined,
+  body: {
+    openai_api_key?: string
+    anthropic_api_key?: string
+    gemini_api_key?: string
+  },
+): Promise<LlmCredentialsStatus> {
+  const uid = resolveUserId(userId)
+  if (!uid) throw new Error('User id required to save LLM credentials')
+  const url = `${getApiBaseUrl()}/api/v1/users/${encodeURIComponent(uid)}/llm-credentials`
+  const response = await apiFetch(url, {
+    method: 'PUT',
+    headers: {
+      ...authHeaders(),
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}))
+    const detail = (err as { detail?: string }).detail
+    throw new Error(detail || `HTTP ${response.status}`)
+  }
+  return response.json()
+}
+
 /**
  * Get thread state (checkpointer or database snapshot).
  */
@@ -161,7 +214,7 @@ export async function getThreadState(
   const uid = resolveUserId(userId)
   if (uid) url.searchParams.set('user_id', uid)
 
-  const response = await fetch(url.toString(), {
+  const response = await apiFetch(url.toString(), {
     method: 'GET',
     headers: authHeaders({
       'Content-Type': 'application/json',
@@ -190,7 +243,7 @@ export async function listWorkflowThreads(
   const uid = resolveUserId(userId)
   if (uid) url.searchParams.set('user_id', uid)
 
-  const response = await fetch(url.toString(), {
+  const response = await apiFetch(url.toString(), {
     method: 'GET',
     headers: authHeaders({ Accept: 'application/json' }),
   })
@@ -213,7 +266,7 @@ export async function getLatestThreadForGmailMessage(
   const uid = resolveUserId(userId)
   if (uid) url.searchParams.set('user_id', uid)
 
-  const response = await fetch(url.toString(), {
+  const response = await apiFetch(url.toString(), {
     method: 'GET',
     headers: authHeaders({ Accept: 'application/json' }),
   })
@@ -253,7 +306,7 @@ export interface GmailMessagesPageResponse {
 }
 
 export async function getGmailStatus(userId: string): Promise<GmailStatusResponse> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${getApiBaseUrl()}/api/v1/gmail/status/${encodeURIComponent(userId)}`,
     { method: 'GET', headers: authHeaders({ Accept: 'application/json' }) },
   )
@@ -272,7 +325,7 @@ export async function getGmailAuthorizationUrl(
 ): Promise<GmailAuthorizeResponse> {
   const url = new URL(`${getApiBaseUrl()}/api/v1/gmail/oauth/authorize`)
   url.searchParams.set('user_id', userId)
-  const response = await fetch(url.toString(), {
+  const response = await apiFetch(url.toString(), {
     method: 'GET',
     headers: authHeaders({ Accept: 'application/json' }),
   })
@@ -294,7 +347,7 @@ export async function listGmailMessages(
   url.searchParams.set('max_results', String(maxResults))
   if (userId) url.searchParams.set('user_id', userId)
 
-  const response = await fetch(url.toString(), {
+  const response = await apiFetch(url.toString(), {
     method: 'GET',
     headers: authHeaders({ Accept: 'application/json' }),
   })
@@ -319,7 +372,7 @@ export async function listGmailMessagesPage(
   if (userId) url.searchParams.set('user_id', userId)
   if (pageToken) url.searchParams.set('page_token', pageToken)
 
-  const response = await fetch(url.toString(), {
+  const response = await apiFetch(url.toString(), {
     method: 'GET',
     headers: authHeaders({ Accept: 'application/json' }),
   })
@@ -343,7 +396,7 @@ export async function getGmailMessage(
   )
   if (userId) url.searchParams.set('user_id', userId)
 
-  const response = await fetch(url.toString(), {
+  const response = await apiFetch(url.toString(), {
     method: 'GET',
     headers: authHeaders({ Accept: 'application/json' }),
     signal: options?.signal,
@@ -365,7 +418,7 @@ export async function createGmailDraft(
 ): Promise<unknown> {
   const url = new URL(`${getApiBaseUrl()}/api/v1/gmail/drafts`)
   if (userId) url.searchParams.set('user_id', userId)
-  const response = await fetch(url.toString(), {
+  const response = await apiFetch(url.toString(), {
     method: 'POST',
     headers: {
       ...authHeaders({ Accept: 'application/json' }),
@@ -386,7 +439,7 @@ export async function createGmailDraft(
 export async function authenticateWithGoogleIdToken(
   idToken: string,
 ): Promise<AuthUserResponse> {
-  const response = await fetch(`${getApiBaseUrl()}/api/v1/auth/google`, {
+  const response = await apiFetch(`${getApiBaseUrl()}/api/v1/auth/google`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -405,7 +458,7 @@ export async function authenticateWithGoogleIdToken(
 }
 
 export async function getAuthenticatedUser(): Promise<AuthUserResponse> {
-  const response = await fetch(`${getApiBaseUrl()}/api/v1/auth/me`, {
+  const response = await apiFetch(`${getApiBaseUrl()}/api/v1/auth/me`, {
     method: 'GET',
     headers: authHeaders({ Accept: 'application/json' }),
   })
@@ -420,7 +473,7 @@ export async function getAuthenticatedUser(): Promise<AuthUserResponse> {
 }
 
 export async function getPublicAuthConfig(): Promise<PublicAuthConfigResponse> {
-  const response = await fetch(`${getApiBaseUrl()}/api/v1/auth/config`, {
+  const response = await apiFetch(`${getApiBaseUrl()}/api/v1/auth/config`, {
     method: 'GET',
     headers: { Accept: 'application/json' },
   })

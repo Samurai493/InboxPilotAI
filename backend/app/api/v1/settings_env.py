@@ -1,17 +1,27 @@
-"""Dev helper: snapshot of loaded env for Settings UI autofill."""
-from fastapi import APIRouter, HTTPException
+"""Dev helper: snapshot of loaded env for Settings UI autofill (admin-only when enabled)."""
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.config import settings
+from app.models.user import User
+from app.services.auth_service import get_current_user
 
 router = APIRouter()
 
 
-@router.get("/settings/env-template")
-async def env_template():
-    """Return backend .env-derived values (camelCase) for browser Settings form. Gated by config."""
+async def require_enabled_env_template_admin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """404 when disabled (after auth, so non-admins do not learn admin-only vs missing)."""
     if not settings.ENABLE_ENV_TEMPLATE_ENDPOINT:
         raise HTTPException(status_code=404, detail="Endpoint disabled")
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
 
+
+@router.get("/settings/env-template")
+async def env_template(_admin: User = Depends(require_enabled_env_template_admin)):
+    """Return backend .env-derived values for Settings UI. Requires admin when flag is on."""
     s = settings
     cors_str = ",".join(s.CORS_ORIGINS) if isinstance(s.CORS_ORIGINS, list) else str(s.CORS_ORIGINS or "")
 

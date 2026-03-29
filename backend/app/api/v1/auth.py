@@ -38,8 +38,22 @@ async def auth_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
 
 @router.get("/auth/me", response_model=AuthUserResponse)
 async def auth_me(current_user: User = Depends(get_current_user)):
-    """Return current user from Bearer token (Google ID token or guest access token from bootstrap)."""
+    """Return current user from Authorization Bearer (Google or guest JWT) or httpOnly guest cookie."""
     return _to_response(current_user)
+
+
+@router.post("/auth/guest/clear-cookie")
+async def clear_guest_cookie(response: Response):
+    """Clear httpOnly guest session cookie (call on sign-out or after Google sign-in)."""
+    secure = settings.ENVIRONMENT.lower() == "production"
+    response.delete_cookie(
+        settings.GUEST_SESSION_COOKIE_NAME,
+        path="/",
+        secure=secure,
+        httponly=True,
+        samesite="lax",
+    )
+    return {"ok": True}
 
 
 @router.get("/auth/config", response_model=PublicAuthConfigResponse)

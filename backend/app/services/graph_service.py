@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 from app.graphs.main_graph import graph
 from app.graphs.state import InboxPilotState
+from app.services.llm_request_context import LlmRequestSecrets
 from app.services.llm_token_usage import WorkflowTokenUsageCallback
 from app.services.tracing import trace_message_processing
 
@@ -79,16 +80,7 @@ class GraphService:
         if llm_model is not None:
             t = llm_model.strip()
             initial_state["llm_model"] = t if t else None
-        if openai_api_key is not None:
-            t = openai_api_key.strip()
-            initial_state["openai_api_key"] = t if t else None
-        if anthropic_api_key is not None:
-            t = anthropic_api_key.strip()
-            initial_state["anthropic_api_key"] = t if t else None
-        if gemini_api_key is not None:
-            t = gemini_api_key.strip()
-            initial_state["gemini_api_key"] = t if t else None
-        
+
         # Configure graph execution
         token_cb = WorkflowTokenUsageCallback()
         config = {
@@ -98,13 +90,17 @@ class GraphService:
             "callbacks": [token_cb],
         }
         
-        # Execute graph with tracing
+        # Execute graph with tracing (API keys only in context — never in checkpoint state)
         try:
-            # Trace the workflow
             intent = initial_state.get("intent", "unknown")
             trace_message_processing(thread_id, user_id, intent)
-            
-            final_state = graph.invoke(initial_state, config=config)
+
+            with LlmRequestSecrets(
+                openai_api_key=openai_api_key,
+                anthropic_api_key=anthropic_api_key,
+                gemini_api_key=gemini_api_key,
+            ):
+                final_state = graph.invoke(initial_state, config=config)
             usage_summary = token_cb.get_summary()
             merged_state = dict(final_state)
             merged_state["llm_token_usage"] = usage_summary
@@ -119,10 +115,9 @@ class GraphService:
                     "Could not persist llm_token_usage to checkpointer",
                     exc_info=True,
                 )
-            
-            # Store trace ID if available
+
             trace_id = merged_state.get("trace_id")
-            
+
             return {
                 "thread_id": thread_id,
                 "state": merged_state,
@@ -170,7 +165,14 @@ class GraphService:
             values = state.values if state else None
             if values and request_user_id:
                 uid_in_state = values.get("user_id")
-                if uid_in_state and str(uid_in_state) != str(request_user_id):
+                if uid_in_state is None or str(uid_in_state).strip() == "":
+                    return {
+                        "thread_id": thread_id,
+                        "state": None,
+                        "status": "forbidden",
+                        "error": "Thread does not belong to this user",
+                    }
+                if str(uid_in_state) != str(request_user_id):
                     return {
                         "thread_id": thread_id,
                         "state": None,

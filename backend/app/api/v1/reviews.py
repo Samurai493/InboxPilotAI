@@ -1,4 +1,6 @@
 """Review queue endpoints."""
+import logging
+
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional
@@ -8,10 +10,13 @@ from app.models.review import Review
 from app.models.thread import Thread
 from app.models.user import User
 from app.services.auth_service import get_current_user
+from app.services.llm_request_context import LlmRequestSecrets
+from app.services.user_llm_credentials_service import get_decrypted_keys
 import uuid
 from datetime import datetime
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class ReviewResponse(BaseModel):
@@ -144,23 +149,30 @@ async def approve_review(
         }
     }
 
-    # Resume with the decision
     try:
         from langgraph.types import Command
 
-        result = graph.invoke(Command(resume=request.approved), config=config)
+        creds = get_decrypted_keys(db, str(review.user_id))
+        with LlmRequestSecrets(
+            openai_api_key=creds["openai_api_key"],
+            anthropic_api_key=creds["anthropic_api_key"],
+            gemini_api_key=creds["gemini_api_key"],
+        ):
+            graph.invoke(Command(resume=request.approved), config=config)
         return {
             "review_id": review_id,
             "status": "approved" if request.approved else "rejected",
             "workflow_resumed": True,
-            "result": result,
         }
-    except Exception as e:
+    except Exception:
+        logger.exception(
+            "Review workflow resume failed",
+            extra={"review_id": review_id, "thread_id": str(review.thread_id)},
+        )
         return {
             "review_id": review_id,
             "status": "approved" if request.approved else "rejected",
             "workflow_resumed": False,
-            "error": str(e),
         }
 
 

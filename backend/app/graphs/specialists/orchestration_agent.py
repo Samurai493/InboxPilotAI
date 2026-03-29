@@ -7,6 +7,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from app.config import settings
 from app.graphs.state import InboxPilotState
 from app.services.llm_utils import get_chat_model_for_state, get_text_content
+from app.services.prompt_untrusted import wrap_untrusted
 
 ALLOWED_AGENTS = {"recruiter", "scheduling", "academic", "support", "billing", "general"}
 
@@ -89,7 +90,12 @@ Use general for personal, spam, mixed, or unclear. Max 6 planned_actions; no mar
     )
 
     chain = prompt | model
-    response = chain.invoke({"intent": intent, "message": message[:8000]})
+    response = chain.invoke(
+        {
+            "intent": intent,
+            "message": wrap_untrusted("email_body", message, max_chars=8000),
+        }
+    )
     raw = get_text_content(response).strip()
 
     selected_agent = _fallback_agent(intent)

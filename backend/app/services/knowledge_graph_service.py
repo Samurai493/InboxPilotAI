@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models.knowledge_entity import KnowledgeEntity
 from app.models.knowledge_relation import KnowledgeRelation
+from app.services.task_extraction_validate import validate_extracted_tasks
 
 
 def _normalize_key(value: str) -> str:
@@ -198,7 +199,7 @@ class KnowledgeGraphService:
         sender_name = (sender_profile.get("name") or "").strip()
         subject = (sender_profile.get("subject") or "").strip()
         intent = (state.get("intent") or "").strip().lower()
-        tasks = state.get("extracted_tasks") or []
+        tasks = validate_extracted_tasks(state.get("extracted_tasks"))
 
         persisted_entities = 0
         persisted_relations = 0

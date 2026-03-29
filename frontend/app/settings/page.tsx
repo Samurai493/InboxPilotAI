@@ -12,23 +12,18 @@ import {
   mergeImportedEnvIntoSettings,
   saveAppSettings,
 } from '@/lib/app-settings'
+import {
+  getAuthHeaders,
+  getLlmCredentialsStatus,
+  putLlmCredentials,
+  type LlmCredentialsStatus,
+} from '@/lib/api'
+import { getStoredUserId } from '@/lib/user-session'
 import { getLlmModelSelectOptionsWithSaved } from '@/lib/llm-models'
 
 const inputClass =
   'mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400'
 const labelClass = 'text-sm font-medium text-gray-800'
-
-type PrimaryLlmKey = 'openaiApiKey' | 'anthropicApiKey' | 'geminiApiKey'
-
-function primaryLlmApiKeyField(provider: string): { label: string; id: string; key: PrimaryLlmKey } {
-  if (provider === 'anthropic') {
-    return { label: 'ANTHROPIC_API_KEY', id: 'anthropicApiKey', key: 'anthropicApiKey' }
-  }
-  if (provider === 'google_genai') {
-    return { label: 'GEMINI_API_KEY', id: 'geminiApiKey', key: 'geminiApiKey' }
-  }
-  return { label: 'OPENAI_API_KEY', id: 'openaiApiKey', key: 'openaiApiKey' }
-}
 
 export default function SettingsPage() {
   const [s, setS] = useState<AppSettings>(defaultAppSettings)
@@ -36,10 +31,38 @@ export default function SettingsPage() {
   const [copyMsg, setCopyMsg] = useState<string | null>(null)
   const [importMsg, setImportMsg] = useState<string | null>(null)
   const [importBusy, setImportBusy] = useState(false)
+  const [llmStatus, setLlmStatus] = useState<LlmCredentialsStatus | null>(null)
+  const [serverOpenai, setServerOpenai] = useState('')
+  const [serverAnthropic, setServerAnthropic] = useState('')
+  const [serverGemini, setServerGemini] = useState('')
+  const [llmServerMsg, setLlmServerMsg] = useState<string | null>(null)
+  const [llmServerBusy, setLlmServerBusy] = useState(false)
 
   useEffect(() => {
     setS(loadAppSettings())
   }, [])
+
+  const effectiveUserId = useMemo(
+    () => getStoredUserId() || s.defaultUserId?.trim() || '',
+    [s.defaultUserId],
+  )
+
+  const refreshLlmStatus = useCallback(async () => {
+    if (!effectiveUserId.trim()) {
+      setLlmStatus(null)
+      return
+    }
+    try {
+      const st = await getLlmCredentialsStatus(effectiveUserId)
+      setLlmStatus(st)
+    } catch {
+      setLlmStatus(null)
+    }
+  }, [effectiveUserId])
+
+  useEffect(() => {
+    void refreshLlmStatus()
+  }, [refreshLlmStatus])
 
   const update = useCallback(<K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setS((prev) => ({ ...prev, [key]: value }))
@@ -105,13 +128,25 @@ export default function SettingsPage() {
       let msg: string
       const base = getApiBaseUrl()
       try {
-        const beRes = await fetch(`${base}/api/v1/settings/env-template`)
+        const beRes = await fetch(`${base}/api/v1/settings/env-template`, {
+          credentials: 'include',
+          headers: {
+            ...getAuthHeaders(),
+            Accept: 'application/json',
+          },
+        })
         if (beRes.ok) {
           backend = (await beRes.json()) as Partial<AppSettings>
           msg = 'Imported from frontend .env and backend API.'
         } else if (beRes.status === 404) {
           msg =
-            'Backend snapshot skipped (404). Add ENABLE_ENV_TEMPLATE_ENDPOINT=true to backend/.env and restart the API to import server values.'
+            'Backend snapshot skipped (404). Set ENABLE_ENV_TEMPLATE_ENDPOINT=true in backend/.env, restart the API, and sign in as an admin user (is_admin in DB).'
+        } else if (beRes.status === 401) {
+          msg =
+            'Backend snapshot skipped (401). Sign in with Google (or guest token) so the API receives Authorization, then retry.'
+        } else if (beRes.status === 403) {
+          msg =
+            'Backend snapshot skipped (403). Env template requires an admin user — set is_admin=true for your user in the database.'
         } else {
           msg = `Backend snapshot: HTTP ${beRes.status}. Frontend .env values were still applied.`
         }
@@ -129,7 +164,58 @@ export default function SettingsPage() {
     }
   }
 
-  const primaryLlmKey = primaryLlmApiKeyField(s.llmProvider)
+  const saveServerLlmKeys = async () => {
+    if (!effectiveUserId.trim()) {
+      setLlmServerMsg('Set Default user ID or sign in on the home page so the API knows your user id.')
+      return
+    }
+    setLlmServerBusy(true)
+    setLlmServerMsg(null)
+    try {
+      const body: {
+        openai_api_key?: string
+        anthropic_api_key?: string
+        gemini_api_key?: string
+      } = {}
+      if (serverOpenai.trim()) body.openai_api_key = serverOpenai.trim()
+      if (serverAnthropic.trim()) body.anthropic_api_key = serverAnthropic.trim()
+      if (serverGemini.trim()) body.gemini_api_key = serverGemini.trim()
+      if (Object.keys(body).length === 0) {
+        setLlmServerMsg('Enter at least one key to save, or use Clear stored keys.')
+        return
+      }
+      const st = await putLlmCredentials(effectiveUserId, body)
+      setLlmStatus(st)
+      setServerOpenai('')
+      setServerAnthropic('')
+      setServerGemini('')
+      setLlmServerMsg('Saved encrypted keys on the server.')
+    } catch (e) {
+      setLlmServerMsg(e instanceof Error ? e.message : 'Save failed')
+    } finally {
+      setLlmServerBusy(false)
+    }
+  }
+
+  const clearServerLlmKeys = async () => {
+    if (!effectiveUserId.trim()) return
+    if (!window.confirm('Remove all server-stored LLM API keys for this user?')) return
+    setLlmServerBusy(true)
+    setLlmServerMsg(null)
+    try {
+      const st = await putLlmCredentials(effectiveUserId, {
+        openai_api_key: '',
+        anthropic_api_key: '',
+        gemini_api_key: '',
+      })
+      setLlmStatus(st)
+      setLlmServerMsg('Cleared server-stored keys.')
+    } catch (e) {
+      setLlmServerMsg(e instanceof Error ? e.message : 'Clear failed')
+    } finally {
+      setLlmServerBusy(false)
+    }
+  }
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-blue-50 to-white">
@@ -152,9 +238,96 @@ export default function SettingsPage() {
         </div>
 
         <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-          Storing API keys in the browser is convenient for local development only. Do not use this on shared or
-          production machines.
+          LLM provider keys should be saved on the server (encrypted in the database). The workflow loads them per user;
+          optional server environment variables still work as a fallback.
         </div>
+
+        <section className="mb-10 rounded-lg border border-primary-200 bg-white p-6 shadow-sm">
+          <h2 className="text-lg font-semibold text-gray-900">LLM API keys (server, encrypted)</h2>
+          <p className="mt-1 text-sm text-gray-600">
+            Sign in (or set <strong>Default user ID</strong> below), then paste keys. They are stored with Fernet
+            encryption. Leave a field empty when saving to leave that provider unchanged; use Clear to remove all three.
+          </p>
+          {llmStatus ? (
+            <p className="mt-2 text-xs text-gray-600">
+              Status: OpenAI {llmStatus.has_openai ? 'on file' : '—'} · Anthropic{' '}
+              {llmStatus.has_anthropic ? 'on file' : '—'} · Gemini {llmStatus.has_gemini ? 'on file' : '—'}
+            </p>
+          ) : effectiveUserId ? (
+            <p className="mt-2 text-xs text-amber-800">Could not load key status (sign in or check API URL).</p>
+          ) : (
+            <p className="mt-2 text-xs text-amber-800">Set Default user ID or complete sign-in on the home page first.</p>
+          )}
+          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <label className={labelClass} htmlFor="srvOpenai">
+                OpenAI API key
+              </label>
+              <input
+                id="srvOpenai"
+                type="password"
+                value={serverOpenai}
+                onChange={(e) => setServerOpenai(e.target.value)}
+                className={inputClass}
+                autoComplete="off"
+                placeholder="sk-…"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className={labelClass} htmlFor="srvAnthropic">
+                Anthropic API key
+              </label>
+              <input
+                id="srvAnthropic"
+                type="password"
+                value={serverAnthropic}
+                onChange={(e) => setServerAnthropic(e.target.value)}
+                className={inputClass}
+                autoComplete="off"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className={labelClass} htmlFor="srvGemini">
+                Gemini API key
+              </label>
+              <input
+                id="srvGemini"
+                type="password"
+                value={serverGemini}
+                onChange={(e) => setServerGemini(e.target.value)}
+                className={inputClass}
+                autoComplete="off"
+              />
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={llmServerBusy}
+              onClick={() => void saveServerLlmKeys()}
+              className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60"
+            >
+              {llmServerBusy ? 'Saving…' : 'Save keys to server'}
+            </button>
+            <button
+              type="button"
+              disabled={llmServerBusy || !effectiveUserId.trim()}
+              onClick={() => void clearServerLlmKeys()}
+              className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+            >
+              Clear stored keys
+            </button>
+            <button
+              type="button"
+              disabled={!effectiveUserId.trim()}
+              onClick={() => void refreshLlmStatus()}
+              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              Refresh status
+            </button>
+          </div>
+          {llmServerMsg ? <p className="mt-2 text-sm text-gray-700">{llmServerMsg}</p> : null}
+        </section>
 
         <section className="mb-10 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
           <h2 className="text-lg font-semibold text-gray-900">Frontend (this app)</h2>
@@ -215,10 +388,9 @@ export default function SettingsPage() {
             restart the API.
           </p>
           <p className="mt-2 text-sm text-gray-600">
-            <strong>Save settings</strong> after changing provider, model, or keys so each workflow run sends{' '}
-            <code className="text-xs">llm_provider</code>, <code className="text-xs">llm_model</code>, and any filled
-            API keys to the API. Alternatively, put keys only in <code className="text-xs">backend/.env</code> on the
-            server (nothing is sent from the browser for keys you leave blank here).
+            <strong>Save settings</strong> after changing provider or model. Each workflow run sends{' '}
+            <code className="text-xs">llm_provider</code> and <code className="text-xs">llm_model</code>; API keys come
+            from the server-stored credentials above or from backend environment variables.
           </p>
           <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="md:col-span-2">
@@ -255,21 +427,6 @@ export default function SettingsPage() {
               <p className="mt-1 text-xs text-gray-500">
                 Only models supported by this app&apos;s LangChain setup are listed. Choose a provider above first.
               </p>
-            </div>
-            <div className="md:col-span-2">
-              <label className={labelClass} htmlFor={primaryLlmKey.id}>
-                {primaryLlmKey.label}
-              </label>
-              <input
-                key={s.llmProvider}
-                id={primaryLlmKey.id}
-                type="password"
-                value={s[primaryLlmKey.key]}
-                onChange={(e) => update(primaryLlmKey.key, e.target.value)}
-                className={inputClass}
-                autoComplete="off"
-                placeholder={`Paste ${primaryLlmKey.label} for selected provider`}
-              />
             </div>
             {s.llmProvider === 'openai' ? (
               <p className="md:col-span-2 text-sm text-gray-600">

@@ -30,11 +30,8 @@ class InboxPilotState(TypedDict):
     # Optional per-request overrides (e.g. from Settings UI); fall back to backend .env when unset
     llm_provider: NotRequired[str | None]
     llm_model: NotRequired[str | None]
-    # Optional per-request API keys (Settings UI); prefer server env in production
-    openai_api_key: NotRequired[str | None]
-    anthropic_api_key: NotRequired[str | None]
-    gemini_api_key: NotRequired[str | None]
-    
+    # LLM API keys are supplied via ``LlmRequestSecrets`` context only (never checkpointed).
+
     # Risk and safety
     risk_flags: Optional[List[str]]
     human_review_required: Optional[bool]

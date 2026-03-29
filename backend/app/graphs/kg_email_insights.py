@@ -6,6 +6,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from app.graphs.state import InboxPilotState
 from app.services.llm_utils import get_chat_model_for_state, get_text_content
+from app.services.prompt_untrusted import wrap_untrusted
 
 
 def _compact_kg_for_prompt(knowledge_hits: dict[str, Any] | None) -> str:
@@ -28,11 +29,14 @@ def _compact_kg_for_prompt(knowledge_hits: dict[str, Any] | None) -> str:
 
 def build_draft_user_message(state: InboxPilotState, reply_instruction: str) -> str:
     """User message for draft nodes: optional KG insights + original email + instruction."""
-    message = state.get("normalized_message", state.get("raw_message", ""))
+    # Use ``or`` so explicit ``normalized_message: None`` still falls back to ``raw_message``.
+    message = state.get("normalized_message") or state.get("raw_message") or ""
     insights = format_kg_insights_for_prompt(state)
-    tail = f"Original message:\n{message}\n\n{reply_instruction}"
+    msg_wrapped = wrap_untrusted("incoming_email", message, max_chars=24000)
+    tail = f"{msg_wrapped}\n\n{reply_instruction}"
     if insights:
-        return f"{insights}\n\n{tail}"
+        ins_wrapped = wrap_untrusted("synthesis_and_memory_block", insights, max_chars=12000)
+        return f"{ins_wrapped}\n\n{tail}"
     return tail
 
 
@@ -62,13 +66,25 @@ def synthesize_email_insights(state: InboxPilotState) -> InboxPilotState:
     intent = state.get("intent", "personal")
     urgency = state.get("urgency_score", "low")
     sender = state.get("sender_profile") or {}
-    kg_text = _compact_kg_for_prompt(state.get("knowledge_hits"))
+    kg_raw = _compact_kg_for_prompt(state.get("knowledge_hits"))
+    kg_text = wrap_untrusted("kg_compact", kg_raw, max_chars=6000)
 
     prefs_text = "(none)"
     for hit in state.get("memory_hits") or []:
         if hit.get("type") == "user_preferences":
-            prefs_text = json.dumps(hit.get("data") or {}, ensure_ascii=False)[:1200]
+            prefs_text = wrap_untrusted(
+                "user_preferences_json",
+                json.dumps(hit.get("data") or {}, ensure_ascii=False)[:1200],
+                max_chars=1200,
+            )
             break
+
+    sender_wrapped = wrap_untrusted(
+        "sender_profile_json",
+        json.dumps(sender, ensure_ascii=False)[:800],
+        max_chars=800,
+    )
+    message_wrapped = wrap_untrusted("email_body", message, max_chars=12000)
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -80,9 +96,9 @@ Use [] for follow_ups if none.""",
             ),
             (
                 "user",
-                "Intent: {intent}\nUrgency: {urgency}\nSender profile: {sender}\n"
-                "User preferences (JSON): {prefs}\n\n"
-                "Recent knowledge graph (entities/relations):\n{kg}\n\n"
+                "Intent: {intent}\nUrgency: {urgency}\nSender profile:\n{sender}\n"
+                "User preferences:\n{prefs}\n\n"
+                "Recent knowledge graph:\n{kg}\n\n"
                 "Email:\n{message}",
             ),
         ]
@@ -93,10 +109,10 @@ Use [] for follow_ups if none.""",
         {
             "intent": intent,
             "urgency": urgency,
-            "sender": json.dumps(sender, ensure_ascii=False)[:800],
+            "sender": sender_wrapped,
             "prefs": prefs_text,
             "kg": kg_text,
-            "message": message[:12000],
+            "message": message_wrapped,
         }
     )
     raw = get_text_content(response).strip()

@@ -8,10 +8,11 @@ import json
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List
 from urllib.parse import parse_qs, urlparse
 
+import jwt
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -33,6 +34,8 @@ GMAIL_SCOPES: List[str] = [
 ]
 
 _STATE_TTL_SECONDS = 900
+_GMAIL_BIND_TYP = "gmail_oauth_bind"
+_GMAIL_BIND_TTL_SECONDS = 900
 
 # Serialize refresh + DB commit per user so parallel Gmail requests do not all refresh at once.
 _cred_refresh_locks_guard = threading.Lock()
@@ -71,6 +74,31 @@ def _sign_oauth_state(user_id: uuid.UUID) -> str:
     return f"{data_b64}.{sig}"
 
 
+def sign_gmail_oauth_binding(user_id: uuid.UUID) -> str:
+    """Short-lived JWT set as httpOnly cookie when starting Gmail OAuth (must match OAuth state uid)."""
+    exp = datetime.now(timezone.utc) + timedelta(seconds=_GMAIL_BIND_TTL_SECONDS)
+    payload = {
+        "sub": str(user_id),
+        "typ": _GMAIL_BIND_TYP,
+        "exp": exp,
+    }
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def verify_gmail_oauth_binding(token: str) -> uuid.UUID:
+    try:
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+        )
+    except jwt.InvalidTokenError as e:
+        raise ValueError("Invalid Gmail OAuth session") from e
+    if payload.get("typ") != _GMAIL_BIND_TYP:
+        raise ValueError("Invalid Gmail OAuth session")
+    return uuid.UUID(payload["sub"])
+
+
 def verify_oauth_state(state: str) -> uuid.UUID:
     if not state or "." not in state:
         raise ValueError("Invalid OAuth state")
@@ -106,7 +134,12 @@ def create_authorization_url(user_id: uuid.UUID) -> str:
     return url
 
 
-def complete_oauth(db: Session, authorization_response_url: str) -> GmailCredential:
+def complete_oauth(
+    db: Session,
+    authorization_response_url: str,
+    *,
+    cookie_binding_user_id: uuid.UUID | None,
+) -> GmailCredential:
     parsed = urlparse(authorization_response_url)
     q = parse_qs(parsed.query)
     if "error" in q:
@@ -116,6 +149,11 @@ def complete_oauth(db: Session, authorization_response_url: str) -> GmailCredent
     if not code or not state:
         raise ValueError("Missing code or state")
     user_id = verify_oauth_state(state)
+
+    if cookie_binding_user_id is None:
+        raise ValueError("Missing Gmail OAuth session; start Gmail connect from the app again")
+    if cookie_binding_user_id != user_id:
+        raise ValueError("Gmail OAuth session mismatch; start connect from the app again")
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -131,6 +169,19 @@ def complete_oauth(db: Session, authorization_response_url: str) -> GmailCredent
     if not creds.refresh_token:
         raise ValueError("No refresh token returned; try revoking app access in Google and reconnect")
 
+    svc = build("gmail", "v1", credentials=creds)
+    profile = svc.users().getProfile(userId="me").execute()
+    google_email = (profile.get("emailAddress") or "").strip()
+
+    # Bind linked Gmail to the signed-in Google account (blocks OAuth CSRF for real users).
+    em = user.email or ""
+    if em and not em.endswith("@inboxpilot.local"):
+        if not google_email or google_email.lower() != em.strip().lower():
+            raise ValueError(
+                "Gmail account does not match your signed-in user. Use the same Google account, "
+                "or sign in with Google before connecting Gmail."
+            )
+
     scope_str = ",".join(creds.scopes or GMAIL_SCOPES)
     row = db.query(GmailCredential).filter(GmailCredential.user_id == user_id).first()
     if not row:
@@ -141,10 +192,7 @@ def complete_oauth(db: Session, authorization_response_url: str) -> GmailCredent
     creds.expiry = _expiry_naive_utc_for_google_auth(creds.expiry)
     row.token_expiry = _expiry_aware_utc_for_db(creds.expiry)
     row.scopes = scope_str
-
-    svc = build("gmail", "v1", credentials=creds)
-    profile = svc.users().getProfile(userId="me").execute()
-    row.google_account_email = profile.get("emailAddress")
+    row.google_account_email = google_email or None
 
     db.commit()
     db.refresh(row)

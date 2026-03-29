@@ -7,6 +7,9 @@ from app.graphs.state import InboxPilotState
 from app.graphs.checkpoint import get_checkpointer
 from app.config import settings
 from app.services.llm_utils import get_chat_model_for_state, get_text_content
+from app.services.preference_sanitizer import tone_for_system_prompt
+from app.services.prompt_untrusted import wrap_untrusted
+from app.services.task_extraction_validate import validate_extracted_tasks
 from app.services.tracing import setup_langsmith
 from app.graphs.kg_email_insights import build_draft_user_message, synthesize_email_insights
 
@@ -78,7 +81,9 @@ Reply with the single label only.""",
 
     message = state.get("normalized_message", state.get("raw_message", ""))
     chain = prompt | model
-    response = chain.invoke({"message": message})
+    response = chain.invoke(
+        {"message": wrap_untrusted("email_body", message, max_chars=32000)}
+    )
     
     intent = get_text_content(response).strip().lower()
     
@@ -193,8 +198,8 @@ def draft_reply(state: InboxPilotState) -> InboxPilotState:
             user_prefs = hit.get("data")
             break
     
-    tone = user_prefs.get("tone", "professional") if user_prefs else "professional"
-    signature = user_prefs.get("signature", "") if user_prefs else ""
+    tone = tone_for_system_prompt(user_prefs.get("tone") if user_prefs else None)
+    signature = (user_prefs.get("signature") or "") if user_prefs else ""
     
     # Intent-specific prompts
     prompt_templates = {
@@ -217,7 +222,7 @@ def draft_reply(state: InboxPilotState) -> InboxPilotState:
     
     system_prompt = prompt_templates.get(intent, prompt_templates["personal"])
     
-    # Add tone instruction
+    # Add tone instruction (allowlisted tone only)
     if tone and tone != "professional":
         system_prompt += f"\n\nUse a {tone} tone in your reply."
     
@@ -250,11 +255,17 @@ def score_confidence(state: InboxPilotState) -> InboxPilotState:
     intent = state.get("intent", "personal")
     summary = (state.get("email_summary") or "").strip()
     if summary:
-        message_ctx = f"Email summary:\n{summary[:4000]}"
+        message_ctx = wrap_untrusted(
+            "email_summary",
+            summary[:4000],
+            max_chars=4000,
+        )
     else:
         raw = state.get("normalized_message", state.get("raw_message", ""))
-        message_ctx = f"Original message (truncated):\n{raw[:3000]}" + (
-            "…" if len(raw) > 3000 else ""
+        message_ctx = wrap_untrusted(
+            "original_email_truncated",
+            raw[:3000] + ("…" if len(raw) > 3000 else ""),
+            max_chars=3100,
         )
 
     prompt = ChatPromptTemplate.from_messages(
@@ -273,7 +284,11 @@ Reply with one decimal number only.""",
 
     chain = prompt | model
     response = chain.invoke(
-        {"intent": intent, "message_ctx": message_ctx, "draft": draft[:8000]}
+        {
+            "intent": intent,
+            "message_ctx": message_ctx,
+            "draft": wrap_untrusted("draft_reply", draft, max_chars=8000),
+        }
     )
     
     try:
@@ -380,13 +395,14 @@ Use [] if none.""",
     )
     
     chain = prompt | model
-    response = chain.invoke({"message": message})
-    
+    response = chain.invoke(
+        {"message": wrap_untrusted("email_body", message, max_chars=32000)}
+    )
+
     import json
     try:
-        tasks = json.loads(get_text_content(response).strip())
-        if not isinstance(tasks, list):
-            tasks = []
+        raw_tasks = json.loads(get_text_content(response).strip())
+        tasks = validate_extracted_tasks(raw_tasks)
     except json.JSONDecodeError:
         tasks = []
     

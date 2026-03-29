@@ -19,7 +19,7 @@ import {
 import type { GmailMessageResponse, GmailMessagesPageResponse } from '@/lib/api'
 import type { GmailStatusResponse } from '@/lib/api'
 import { clearGoogleIdToken, getGoogleIdToken, setGoogleIdToken } from '@/lib/auth-session'
-import { clearGuestAccessToken, setStoredUserId } from '@/lib/user-session'
+import { clearGuestSessionFully, setStoredUserId } from '@/lib/user-session'
 import { getGoogleClientIdForGis } from '@/lib/app-settings'
 import {
   clearGmailInboxPagesLocalStorage,
@@ -61,9 +61,25 @@ function queueScrollContainerToTop(el: HTMLElement | null) {
   })
 }
 
+/** Minimal Google Identity Services shape used by this page (avoids `any` on `window`). */
+interface GoogleIdClient {
+  initialize: (config: {
+    client_id: string
+    callback: (response: { credential?: string }) => void
+  }) => void
+  renderButton: (
+    parent: HTMLElement,
+    options: { theme?: string; size?: string; width?: number; text?: string },
+  ) => void
+}
+
 declare global {
   interface Window {
-    google?: any
+    google?: {
+      accounts?: {
+        id?: GoogleIdClient
+      }
+    }
   }
 }
 
@@ -487,7 +503,7 @@ export default function Home() {
   const handleGoogleCredential = async (idToken: string) => {
     try {
       setSessionError(null)
-      clearGuestAccessToken()
+      await clearGuestSessionFully()
       setGoogleIdToken(idToken)
       const user = await authenticateWithGoogleIdToken(idToken)
       setStoredUserId(user.user_id)
@@ -550,7 +566,7 @@ export default function Home() {
     }
     inboxSessionHydratedRef.current = false
     clearGoogleIdToken()
-    clearGuestAccessToken()
+    void clearGuestSessionFully()
     detailAbortRef.current?.abort()
     detailAbortRef.current = null
     pendingDetailMessageIdRef.current = null

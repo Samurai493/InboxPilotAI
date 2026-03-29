@@ -13,13 +13,18 @@ from app.services.gmail_oauth import require_user_uuid
 
 logger = logging.getLogger(__name__)
 
+_SENSITIVE_STATE_KEYS = frozenset(
+    {"openai_api_key", "anthropic_api_key", "gemini_api_key"},
+)
+
 
 def state_snapshot_for_db(state: dict[str, Any] | None) -> dict[str, Any] | None:
-    """JSON-serializable copy (datetimes → strings)."""
+    """JSON-serializable copy (datetimes → strings). Strips per-request LLM keys from persistence."""
     if not state:
         return None
     try:
-        return json.loads(json.dumps(state, default=str))
+        redacted = {k: v for k, v in state.items() if k not in _SENSITIVE_STATE_KEYS}
+        return json.loads(json.dumps(redacted, default=str))
     except (TypeError, ValueError) as e:
         logger.warning("Could not serialize state snapshot: %s", e)
         return {"_serialization_error": str(e)}

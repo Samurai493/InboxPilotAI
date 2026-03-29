@@ -1,18 +1,26 @@
 """User preferences and bootstrap endpoints."""
+import logging
 import uuid as uuid_lib
 
 from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.models.user import User
 from app.rate_limit import limiter
 from app.services.auth_service import create_guest_access_token, get_current_user, require_user_context
 from app.services.memory_service import MemoryService
+from app.services.user_llm_credentials_service import (
+    get_public_status,
+    save_credentials,
+)
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class UserBootstrapResponse(BaseModel):
@@ -21,7 +29,8 @@ class UserBootstrapResponse(BaseModel):
     id: str
     email: str
     name: Optional[str] = None
-    guest_access_token: str
+    # Deprecated for clients that can use httpOnly cookie; null when cookie is set.
+    guest_access_token: Optional[str] = None
 
 
 @router.post("/users/bootstrap", response_model=UserBootstrapResponse)
@@ -29,7 +38,7 @@ class UserBootstrapResponse(BaseModel):
 async def bootstrap_user(request: Request, db: Session = Depends(get_db)):
     """
     Create a new user row for this browser session (no password).
-    Store guest_access_token and send it as Bearer for API calls until Google sign-in.
+    Sets an httpOnly guest session cookie; optional legacy Bearer token is no longer returned in JSON.
     """
     guest_email = f"guest-{uuid_lib.uuid4()}@inboxpilot.local"
     user = User(email=guest_email, name="Guest")
@@ -37,12 +46,27 @@ async def bootstrap_user(request: Request, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
     token = create_guest_access_token(user.id)
-    return UserBootstrapResponse(
-        id=str(user.id),
-        email=user.email,
-        name=user.name,
-        guest_access_token=token,
+    logger.info("user_bootstrap", extra={"user_id": str(user.id), "guest": True})
+    secure = settings.ENVIRONMENT.lower() == "production"
+    max_age = max(60, settings.GUEST_TOKEN_EXPIRE_DAYS * 24 * 3600)
+    resp = JSONResponse(
+        content={
+            "id": str(user.id),
+            "email": user.email,
+            "name": user.name,
+            "guest_access_token": None,
+        }
     )
+    resp.set_cookie(
+        key=settings.GUEST_SESSION_COOKIE_NAME,
+        value=token,
+        max_age=max_age,
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        path="/",
+    )
+    return resp
 
 
 class UserPreferencesRequest(BaseModel):
@@ -108,3 +132,75 @@ async def update_user_preferences(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class UserLlmCredentialsStatusResponse(BaseModel):
+    """Whether each provider slot has a stored secret (no key material)."""
+
+    has_openai: bool
+    has_anthropic: bool
+    has_gemini: bool
+
+
+class UserLlmCredentialsPutRequest(BaseModel):
+    """Omit a field to leave it unchanged; send empty string to clear that slot."""
+
+    openai_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None
+
+
+@router.get(
+    "/users/{user_id}/llm-credentials/status",
+    response_model=UserLlmCredentialsStatusResponse,
+)
+async def get_llm_credentials_status(
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_user_context(current_user, user_id)
+    st = get_public_status(db, user_id)
+    return UserLlmCredentialsStatusResponse(**st)
+
+
+@router.put(
+    "/users/{user_id}/llm-credentials",
+    response_model=UserLlmCredentialsStatusResponse,
+)
+async def put_llm_credentials(
+    user_id: str,
+    body: UserLlmCredentialsPutRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Encrypt and store per-user LLM API keys (Fernet at rest)."""
+    require_user_context(current_user, user_id)
+    data = body.model_dump(exclude_unset=True)
+    kwargs: dict = {}
+    if "openai_api_key" in data:
+        v = data["openai_api_key"]
+        if v is None or (isinstance(v, str) and not v.strip()):
+            kwargs["clear_openai"] = True
+        else:
+            kwargs["openai_api_key"] = str(v).strip()
+    if "anthropic_api_key" in data:
+        v = data["anthropic_api_key"]
+        if v is None or (isinstance(v, str) and not v.strip()):
+            kwargs["clear_anthropic"] = True
+        else:
+            kwargs["anthropic_api_key"] = str(v).strip()
+    if "gemini_api_key" in data:
+        v = data["gemini_api_key"]
+        if v is None or (isinstance(v, str) and not v.strip()):
+            kwargs["clear_gemini"] = True
+        else:
+            kwargs["gemini_api_key"] = str(v).strip()
+
+    try:
+        save_credentials(db, user_id, **kwargs)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    st = get_public_status(db, user_id)
+    return UserLlmCredentialsStatusResponse(**st)

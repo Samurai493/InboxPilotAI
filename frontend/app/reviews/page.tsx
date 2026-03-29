@@ -31,6 +31,7 @@ export default function ReviewsPage() {
     try {
       const response = await fetch(`${getApiBaseUrl()}/api/v1/reviews/pending`, {
         method: 'GET',
+        credentials: 'include',
         headers: {
           ...getAuthHeaders(),
           'Content-Type': 'application/json',
@@ -54,6 +55,7 @@ export default function ReviewsPage() {
     try {
       const response = await fetch(`${getApiBaseUrl()}/api/v1/reviews/${reviewId}/approve`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           ...getAuthHeaders(),
           'Content-Type': 'application/json',
@@ -79,6 +81,7 @@ export default function ReviewsPage() {
     try {
       const response = await fetch(`${getApiBaseUrl()}/api/v1/reviews/${reviewId}/reject`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           ...getAuthHeaders(),
           'Content-Type': 'application/json',

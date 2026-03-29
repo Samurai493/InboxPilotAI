@@ -11,6 +11,9 @@ def setup_langsmith():
         os.environ["LANGCHAIN_TRACING_V2"] = "true"
         os.environ["LANGCHAIN_PROJECT"] = settings.LANGSMITH_PROJECT or "inboxpilot-ai"
         os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
+        # Reduce secret/PII leakage in exported traces (graph state may hold user content).
+        os.environ.setdefault("LANGCHAIN_HIDE_INPUTS", "true")
+        os.environ.setdefault("LANGCHAIN_HIDE_OUTPUTS", "true")
     else:
         print("Warning: LangSmith API key not set. Tracing disabled.")
 

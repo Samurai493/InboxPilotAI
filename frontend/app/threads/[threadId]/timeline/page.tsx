@@ -7,8 +7,8 @@ import { getAuthHeaders } from '@/lib/api'
 
 interface HistoryEntry {
   checkpoint_id?: string
-  values?: any
-  metadata?: any
+  values?: Record<string, unknown> | null
+  metadata?: Record<string, unknown> | null
   parent_checkpoint_id?: string
 }
 
@@ -30,6 +30,7 @@ export default function ThreadTimelinePage() {
       try {
         const response = await fetch(`${getApiBaseUrl()}/api/v1/threads/${threadId}/history`, {
           method: 'GET',
+          credentials: 'include',
           headers: {
             ...getAuthHeaders(),
             'Content-Type': 'application/json',

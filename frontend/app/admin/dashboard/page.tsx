@@ -31,6 +31,7 @@ export default function AdminDashboard() {
     try {
       const response = await fetch(`${getApiBaseUrl()}/api/v1/metrics/summary`, {
         method: 'GET',
+        credentials: 'include',
         headers: {
           ...getAuthHeaders(),
           'Content-Type': 'application/json',

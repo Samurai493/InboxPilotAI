@@ -14,6 +14,7 @@ export default function TracesPage() {
     setLoading(true)
     try {
       const response = await fetch(`${getApiBaseUrl()}/api/v1/traces/${traceId}`, {
+        credentials: 'include',
         method: 'GET',
         headers: {
           ...getAuthHeaders(),

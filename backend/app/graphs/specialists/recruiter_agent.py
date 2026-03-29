@@ -3,6 +3,9 @@ from langchain_core.prompts import ChatPromptTemplate
 from app.graphs.state import InboxPilotState
 from app.graphs.kg_email_insights import build_draft_user_message
 from app.services.llm_utils import get_chat_model_for_state, get_text_content
+from app.services.preference_sanitizer import tone_for_system_prompt
+from app.services.prompt_untrusted import wrap_untrusted
+from app.services.task_extraction_validate import validate_extracted_tasks
 
 
 def recruiter_draft_reply(state: InboxPilotState) -> InboxPilotState:
@@ -17,7 +20,7 @@ def recruiter_draft_reply(state: InboxPilotState) -> InboxPilotState:
             user_prefs = hit.get("data")
             break
 
-    tone = user_prefs.get("tone", "professional") if user_prefs else "professional"
+    tone = tone_for_system_prompt(user_prefs.get("tone") if user_prefs else None)
     signature = user_prefs.get("signature", "") if user_prefs else ""
 
     user_body = build_draft_user_message(state, "Draft a professional reply:")
@@ -51,6 +54,7 @@ def recruiter_extract_tasks(state: InboxPilotState) -> InboxPilotState:
     model = get_chat_model_for_state(state, temperature=0, model_tier="fast")
 
     message = state.get("normalized_message", state.get("raw_message", ""))
+    msg_block = wrap_untrusted("email_body", message, max_chars=32000)
 
     prompt = ChatPromptTemplate.from_messages([
         (
@@ -58,17 +62,16 @@ def recruiter_extract_tasks(state: InboxPilotState) -> InboxPilotState:
             """Recruiter/networking tasks only (interviews, applications, follow-ups, info requests).
 Return ONLY JSON array: [{{"description":str,"due_date":str|null,"priority":"low"|"medium"|"high"}}] or [].""",
         ),
-        ("user", f"Message:\n{message}")
+        ("user", "Message:\n{msg_block}"),
     ])
 
     chain = prompt | model
-    response = chain.invoke({})
+    response = chain.invoke({"msg_block": msg_block})
 
     import json
     try:
-        tasks = json.loads(get_text_content(response).strip())
-        if not isinstance(tasks, list):
-            tasks = []
+        raw = json.loads(get_text_content(response).strip())
+        tasks = validate_extracted_tasks(raw)
     except json.JSONDecodeError:
         tasks = []
 

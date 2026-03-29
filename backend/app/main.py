@@ -1,5 +1,6 @@
 """FastAPI application entry point."""
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,12 +23,39 @@ _WEAK_SECRET_KEYS = frozenset(
     }
 )
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Validate security in production, then initialize database (non-fatal on DB errors)."""
+    if settings.ENVIRONMENT.lower() == "production":
+        sk = settings.SECRET_KEY.strip()
+        if len(sk) < 32 or sk.lower() in _WEAK_SECRET_KEYS:
+            raise RuntimeError(
+                "Production requires a strong SECRET_KEY (32+ characters, not a default). "
+                "Set SECRET_KEY in the environment."
+            )
+        if settings.REQUIRE_SLOWAPI_IN_PRODUCTION and not SLOWAPI_ENABLED:
+            raise RuntimeError(
+                "Production requires rate limiting. Install slowapi (pip install slowapi==0.1.9) "
+                "or set REQUIRE_SLOWAPI_IN_PRODUCTION=false only for non-internet-facing debug."
+            )
+    try:
+        init_db()
+    except Exception:
+        logger.exception(
+            "Database init failed (check DATABASE_URL / Cloud SQL). "
+            "Service is up; DB-backed routes will error until the database is reachable."
+        )
+    yield
+
+
 # Initialize FastAPI app
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     docs_url="/docs" if settings.DOCS_ENABLED else None,
     redoc_url="/redoc" if settings.DOCS_ENABLED else None,
+    lifespan=lifespan,
 )
 
 if SLOWAPI_ENABLED:
@@ -52,25 +80,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Validate security in production, then initialize database (non-fatal on DB errors)."""
-    if settings.ENVIRONMENT.lower() == "production":
-        sk = settings.SECRET_KEY.strip()
-        if len(sk) < 32 or sk.lower() in _WEAK_SECRET_KEYS:
-            raise RuntimeError(
-                "Production requires a strong SECRET_KEY (32+ characters, not a default). "
-                "Set SECRET_KEY in the environment."
-            )
-    try:
-        init_db()
-    except Exception:
-        logger.exception(
-            "Database init failed (check DATABASE_URL / Cloud SQL). "
-            "Service is up; DB-backed routes will error until the database is reachable."
-        )
 
 
 @app.get("/")

@@ -3,6 +3,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from app.graphs.state import InboxPilotState
 from app.graphs.kg_email_insights import build_draft_user_message
 from app.services.llm_utils import get_chat_model_for_state, get_text_content
+from app.services.prompt_untrusted import wrap_untrusted
+from app.services.task_extraction_validate import validate_extracted_tasks
 
 
 def billing_draft_reply(state: InboxPilotState) -> InboxPilotState:
@@ -35,6 +37,7 @@ def billing_extract_tasks(state: InboxPilotState) -> InboxPilotState:
     model = get_chat_model_for_state(state, temperature=0, model_tier="fast")
 
     message = state.get("normalized_message", state.get("raw_message", ""))
+    msg_block = wrap_untrusted("email_body", message, max_chars=32000)
 
     prompt = ChatPromptTemplate.from_messages([
         (
@@ -42,17 +45,16 @@ def billing_extract_tasks(state: InboxPilotState) -> InboxPilotState:
             """Billing tasks: payments, invoices, disputes, refunds, confirmations.
 Return ONLY JSON array: [{{"description":str,"due_date":str|null,"priority":"low"|"medium"|"high"}}] or [].""",
         ),
-        ("user", f"Message:\n{message}")
+        ("user", "Message:\n{msg_block}"),
     ])
 
     chain = prompt | model
-    response = chain.invoke({})
+    response = chain.invoke({"msg_block": msg_block})
 
     import json
     try:
-        tasks = json.loads(get_text_content(response).strip())
-        if not isinstance(tasks, list):
-            tasks = []
+        raw = json.loads(get_text_content(response).strip())
+        tasks = validate_extracted_tasks(raw)
     except json.JSONDecodeError:
         tasks = []
 
