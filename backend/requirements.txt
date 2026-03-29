@@ -35,14 +35,14 @@ google-api-python-client==2.193.0
 
 # Utilities
 python-dotenv==1.0.0
-python-multipart==0.0.20
+python-multipart==0.0.22
 httpx>=0.25.0,<0.29.0
-PyJWT==2.10.1
+PyJWT==2.12.1
 slowapi==0.1.9
-cryptography>=43.0.0,<46.0.0
+cryptography>=46.0.6,<47.0.0
 
 # Development
 pytest==7.4.3
 pytest-asyncio==0.21.1
-black==23.11.0
+black==26.3.1
 isort==5.12.0
