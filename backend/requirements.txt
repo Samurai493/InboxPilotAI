@@ -10,7 +10,7 @@ pydantic-settings==2.11.0
 # Database
 sqlalchemy==2.0.38
 alembic==1.12.1
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.11
 redis==5.0.1
 
 # LangGraph and LangChain
