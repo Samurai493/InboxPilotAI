@@ -34,7 +34,7 @@ google-auth-httplib2==0.3.0
 google-api-python-client==2.193.0
 
 # Utilities
-python-dotenv==1.0.0
+python-dotenv==1.2.2
 python-multipart==0.0.22
 httpx>=0.25.0,<0.29.0
 PyJWT==2.12.1
