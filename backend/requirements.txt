@@ -32,7 +32,7 @@ google-api-python-client==2.108.0
 
 # Utilities
 python-dotenv==1.0.0
-python-multipart==0.0.20
+python-multipart==0.0.22
 httpx>=0.25.0,<0.29.0
 PyJWT==2.10.1
 slowapi==0.1.9
