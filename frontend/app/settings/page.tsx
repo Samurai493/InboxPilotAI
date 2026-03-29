@@ -225,9 +225,10 @@ export default function SettingsPage() {
         <section className="mb-10 rounded-lg border border-primary-200 bg-white p-6 shadow-sm">
           <h2 className="text-lg font-semibold text-gray-900">LLM API keys (server, encrypted)</h2>
           <p className="mt-1 text-sm text-gray-600">
-            Sign in (or set <strong>Default user ID</strong> in Frontend below), then choose the LLM provider and model,
-            paste keys, and save. Keys use Fernet encryption on the server. Leave a key field empty when saving to leave
-            that provider unchanged; use Clear stored keys to remove all three.
+            Sign in (or set <strong>Default user ID</strong> in Frontend below), then choose the LLM provider and model.
+            Only the API key for the selected provider is shown. Keys use Fernet encryption on the server. Leave the field
+            empty when saving to leave that provider unchanged; <strong>Clear stored keys</strong> removes all providers on
+            the server.
           </p>
           <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="md:col-span-2">
@@ -272,8 +273,19 @@ export default function SettingsPage() {
           </p>
           {llmStatus ? (
             <p className="mt-2 text-xs text-gray-600">
-              Status: OpenAI {llmStatus.has_openai ? 'on file' : '—'} · Anthropic{' '}
-              {llmStatus.has_anthropic ? 'on file' : '—'} · Gemini {llmStatus.has_gemini ? 'on file' : '—'}
+              {s.llmProvider === 'openai' ? (
+                <>
+                  Status (OpenAI): {llmStatus.has_openai ? 'key on file' : 'no key on file'}
+                </>
+              ) : s.llmProvider === 'anthropic' ? (
+                <>
+                  Status (Anthropic): {llmStatus.has_anthropic ? 'key on file' : 'no key on file'}
+                </>
+              ) : (
+                <>
+                  Status (Gemini): {llmStatus.has_gemini ? 'key on file' : 'no key on file'}
+                </>
+              )}
             </p>
           ) : effectiveUserId ? (
             <p className="mt-2 text-xs text-amber-800">Could not load key status (sign in or check API URL).</p>
@@ -281,46 +293,52 @@ export default function SettingsPage() {
             <p className="mt-2 text-xs text-amber-800">Set Default user ID or complete sign-in on the home page first.</p>
           )}
           <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div className="md:col-span-2">
-              <label className={labelClass} htmlFor="srvOpenai">
-                OpenAI API key
-              </label>
-              <input
-                id="srvOpenai"
-                type="password"
-                value={serverOpenai}
-                onChange={(e) => setServerOpenai(e.target.value)}
-                className={inputClass}
-                autoComplete="off"
-                placeholder="sk-…"
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label className={labelClass} htmlFor="srvAnthropic">
-                Anthropic API key
-              </label>
-              <input
-                id="srvAnthropic"
-                type="password"
-                value={serverAnthropic}
-                onChange={(e) => setServerAnthropic(e.target.value)}
-                className={inputClass}
-                autoComplete="off"
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label className={labelClass} htmlFor="srvGemini">
-                Gemini API key
-              </label>
-              <input
-                id="srvGemini"
-                type="password"
-                value={serverGemini}
-                onChange={(e) => setServerGemini(e.target.value)}
-                className={inputClass}
-                autoComplete="off"
-              />
-            </div>
+            {s.llmProvider === 'openai' ? (
+              <div className="md:col-span-2">
+                <label className={labelClass} htmlFor="srvOpenai">
+                  OpenAI API key
+                </label>
+                <input
+                  id="srvOpenai"
+                  type="password"
+                  value={serverOpenai}
+                  onChange={(e) => setServerOpenai(e.target.value)}
+                  className={inputClass}
+                  autoComplete="off"
+                  placeholder="sk-…"
+                />
+              </div>
+            ) : null}
+            {s.llmProvider === 'anthropic' ? (
+              <div className="md:col-span-2">
+                <label className={labelClass} htmlFor="srvAnthropic">
+                  Anthropic API key
+                </label>
+                <input
+                  id="srvAnthropic"
+                  type="password"
+                  value={serverAnthropic}
+                  onChange={(e) => setServerAnthropic(e.target.value)}
+                  className={inputClass}
+                  autoComplete="off"
+                />
+              </div>
+            ) : null}
+            {s.llmProvider === 'google_genai' ? (
+              <div className="md:col-span-2">
+                <label className={labelClass} htmlFor="srvGemini">
+                  Gemini API key
+                </label>
+                <input
+                  id="srvGemini"
+                  type="password"
+                  value={serverGemini}
+                  onChange={(e) => setServerGemini(e.target.value)}
+                  className={inputClass}
+                  autoComplete="off"
+                />
+              </div>
+            ) : null}
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <button

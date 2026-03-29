@@ -44,6 +44,9 @@ class InboxPilotState(TypedDict):
     # KG + LLM synthesis (after retrieve_memory)
     email_context: NotRequired[str | None]
     email_summary: NotRequired[str | None]
+    email_substance: NotRequired[str | None]
+    sender_request: NotRequired[str | None]
+    response_thinking: NotRequired[str | None]
     follow_ups: NotRequired[List[str] | None]
     
     # Outputs

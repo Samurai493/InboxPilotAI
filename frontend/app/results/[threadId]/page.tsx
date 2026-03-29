@@ -53,6 +53,9 @@ interface ThreadState {
     knowledge_written?: { entities?: KgEntity[]; relations?: KgRelation[] }
     email_context?: string | null
     email_summary?: string | null
+    email_substance?: string | null
+    sender_request?: string | null
+    response_thinking?: string | null
     follow_ups?: string[] | null
     llm_token_usage?: LlmTokenUsage | null
   } | null
@@ -319,25 +322,49 @@ export default function ResultsPage() {
         )}
 
         {/* KG-backed synthesis (feeds drafts) */}
-        {(state.email_summary || state.email_context || (state.follow_ups && state.follow_ups.length > 0)) && (
+        {(state.email_summary ||
+          state.email_substance ||
+          state.sender_request ||
+          state.response_thinking ||
+          state.email_context ||
+          (state.follow_ups && state.follow_ups.length > 0)) && (
           <div className="bg-white rounded-lg shadow-lg p-8">
-            <h2 className="text-2xl font-semibold text-gray-900 mb-4">Insights (memory + graph)</h2>
-            <p className="text-sm text-gray-600 mb-4">
-              Produced after loading preferences and recent knowledge-graph context; used in draft prompts.
+            <h2 className="text-2xl font-semibold text-gray-900 mb-4">Email summary</h2>
+            <p className="text-sm text-gray-600 mb-6">
+              Synthesized from the message, your preferences, and knowledge-graph context. This block also feeds draft
+              generation.
             </p>
-            {state.email_summary && (
-              <div className="mb-4">
-                <h3 className="text-sm font-semibold text-gray-800">Summary</h3>
-                <p className="mt-1 text-gray-700">{state.email_summary}</p>
+            {state.email_summary ? (
+              <div className="mb-5">
+                <h3 className="text-sm font-semibold text-gray-800">At a glance</h3>
+                <p className="mt-1 text-gray-800 font-medium">{state.email_summary}</p>
               </div>
-            )}
-            {state.email_context && (
-              <div className="mb-4">
-                <h3 className="text-sm font-semibold text-gray-800">Context</h3>
-                <p className="mt-1 text-gray-700">{state.email_context}</p>
+            ) : null}
+            {state.email_substance ? (
+              <div className="mb-5">
+                <h3 className="text-sm font-semibold text-gray-800">What the email contains</h3>
+                <p className="mt-1 text-gray-700 whitespace-pre-wrap">{state.email_substance}</p>
               </div>
-            )}
-            {state.follow_ups && state.follow_ups.length > 0 && (
+            ) : null}
+            {state.sender_request ? (
+              <div className="mb-5">
+                <h3 className="text-sm font-semibold text-gray-800">What they&apos;re asking for</h3>
+                <p className="mt-1 text-gray-700 whitespace-pre-wrap">{state.sender_request}</p>
+              </div>
+            ) : null}
+            {state.response_thinking ? (
+              <div className="mb-5">
+                <h3 className="text-sm font-semibold text-gray-800">Thought process for the reply</h3>
+                <p className="mt-1 text-gray-700 whitespace-pre-wrap">{state.response_thinking}</p>
+              </div>
+            ) : null}
+            {state.email_context ? (
+              <div className="mb-5">
+                <h3 className="text-sm font-semibold text-gray-800">Memory &amp; graph context</h3>
+                <p className="mt-1 text-gray-700 whitespace-pre-wrap">{state.email_context}</p>
+              </div>
+            ) : null}
+            {state.follow_ups && state.follow_ups.length > 0 ? (
               <div>
                 <h3 className="text-sm font-semibold text-gray-800">Suggested follow-ups</h3>
                 <ul className="mt-2 list-disc pl-5 text-gray-700 space-y-1">
@@ -346,7 +373,7 @@ export default function ResultsPage() {
                   ))}
                 </ul>
               </div>
-            )}
+            ) : null}
           </div>
         )}
 

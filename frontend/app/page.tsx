@@ -107,6 +107,8 @@ export default function Home() {
   const [composeBusy, setComposeBusy] = useState(false)
   const [composeError, setComposeError] = useState<string | null>(null)
 
+  const [inboxRefreshToast, setInboxRefreshToast] = useState<'loading' | 'success' | null>(null)
+
   const [replyOpen, setReplyOpen] = useState(false)
   const [replyBody, setReplyBody] = useState('')
   const [replyBusy, setReplyBusy] = useState(false)
@@ -134,6 +136,42 @@ export default function Home() {
   /** Avoid writing sessionStorage before the first inbox load (would overwrite restore payload). */
   const inboxSessionHydratedRef = useRef(false)
   const gmailInboxListScrollRef = useRef<HTMLDivElement | null>(null)
+  const replyFormRef = useRef<HTMLFormElement | null>(null)
+  const readerScrollRef = useRef<HTMLDivElement | null>(null)
+  const gmailPageIndexRef = useRef(0)
+  const gmailMessagesBusyRef = useRef(false)
+  const silentInboxRefreshGenRef = useRef(0)
+  const inboxRefreshBannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  gmailPageIndexRef.current = gmailPageIndex
+  gmailMessagesBusyRef.current = gmailMessagesBusy
+
+  const showInboxRefreshLoadingBanner = useCallback(() => {
+    if (inboxRefreshBannerTimerRef.current) {
+      clearTimeout(inboxRefreshBannerTimerRef.current)
+      inboxRefreshBannerTimerRef.current = null
+    }
+    setInboxRefreshToast('loading')
+  }, [])
+
+  const showInboxRefreshSuccessBanner = useCallback(() => {
+    if (inboxRefreshBannerTimerRef.current) {
+      clearTimeout(inboxRefreshBannerTimerRef.current)
+    }
+    setInboxRefreshToast('success')
+    inboxRefreshBannerTimerRef.current = setTimeout(() => {
+      setInboxRefreshToast(null)
+      inboxRefreshBannerTimerRef.current = null
+    }, 1000)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (inboxRefreshBannerTimerRef.current) {
+        clearTimeout(inboxRefreshBannerTimerRef.current)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     bodyDetailCacheRef.current.clear()
@@ -147,6 +185,43 @@ export default function Home() {
     setReplyError(null)
     setReplyNotice(null)
   }, [selectedGmailMessageId])
+
+  useEffect(() => {
+    if (!replyOpen) return
+    let cancelled = false
+    const outer = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        if (cancelled) return
+        const formEl = replyFormRef.current
+        const scrollEl = readerScrollRef.current
+        if (!formEl) return
+
+        const marginTop = 12
+        if (scrollEl) {
+          const formTop = formEl.getBoundingClientRect().top
+          const scrollTop = scrollEl.getBoundingClientRect().top
+          const nextScrollTop =
+            scrollEl.scrollTop + (formTop - scrollTop) - marginTop
+          scrollEl.scrollTo({
+            top: Math.max(0, nextScrollTop),
+            behavior: 'smooth',
+          })
+        } else {
+          formEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+
+        const ta = formEl.querySelector('textarea')
+        if (ta instanceof HTMLTextAreaElement) {
+          // Avoid browser snap-scroll to focused control (overrides smooth scroll above).
+          ta.focus({ preventScroll: true })
+        }
+      })
+    })
+    return () => {
+      cancelled = true
+      window.cancelAnimationFrame(outer)
+    }
+  }, [replyOpen])
 
   /** Stop document-level scroll / rubber-band so nothing behind the app (e.g. dark body) shows past the header. */
   useEffect(() => {
@@ -321,9 +396,16 @@ export default function Home() {
       pageToken: string | null,
       pageIndex: number,
       tokenHistory: Array<string | null>,
-      options?: { preferMessageId?: string | null },
+      options?: {
+        preferMessageId?: string | null
+        onRefreshComplete?: () => void
+        onRefreshFailed?: () => void
+      },
     ) => {
       const myGen = ++inboxLoadGenerationRef.current
+      if (!options?.onRefreshComplete && !options?.onRefreshFailed) {
+        setInboxRefreshToast((prev) => (prev === 'loading' ? null : prev))
+      }
       prefetchedNextPageRef.current = null
       setGmailMessagesBusy(true)
       setGmailMessagesError(null)
@@ -364,7 +446,9 @@ export default function Home() {
             setGmailNextPageToken(fresh.next_page_token ?? null)
             prefetchBodiesFirstFifty(uid, fresh.messages.map((m) => m.id))
             void prefetchNextGmailListPage(uid, fresh.next_page_token ?? null)
+            options?.onRefreshComplete?.()
           } catch {
+            options?.onRefreshFailed?.()
             /* keep showing cache */
           }
         })()
@@ -381,11 +465,13 @@ export default function Home() {
           setSelectedGmailMessageId(pickId)
           await loadGmailMessageDetail(uid, pickId)
         }
+        options?.onRefreshComplete?.()
       } catch (e) {
         if (myGen !== inboxLoadGenerationRef.current) return
         setGmailMessages([])
         setGmailNextPageToken(null)
         setGmailMessagesError(e instanceof Error ? e.message : 'Failed to load messages')
+        options?.onRefreshFailed?.()
       } finally {
         if (myGen === inboxLoadGenerationRef.current) {
           setGmailMessagesBusy(false)
@@ -398,6 +484,51 @@ export default function Home() {
       prefetchNextGmailListPage,
     ],
   )
+
+  /** While on inbox page 1 and tab is visible, refetch the list every 60s (no selection reset). */
+  useEffect(() => {
+    if (!userId || !gmailConnected) return
+    const INTERVAL_MS = 60_000
+    const run = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+      if (gmailMessagesBusyRef.current) return
+      if (gmailPageIndexRef.current !== 0) return
+      const myGen = ++silentInboxRefreshGenRef.current
+      const uid = userId
+      showInboxRefreshLoadingBanner()
+      try {
+        const page = await listGmailMessagesPage(uid, GMAIL_PAGE_SIZE, null)
+        if (myGen !== silentInboxRefreshGenRef.current) {
+          setInboxRefreshToast(null)
+          return
+        }
+        if (gmailPageIndexRef.current !== 0) {
+          setInboxRefreshToast(null)
+          return
+        }
+        saveInboxPageToLocalStorage(uid, null, page)
+        setGmailMessages(page.messages)
+        setGmailNextPageToken(page.next_page_token ?? null)
+        prefetchBodiesFirstFifty(uid, page.messages.map((m) => m.id))
+        void prefetchNextGmailListPage(uid, page.next_page_token ?? null)
+        showInboxRefreshSuccessBanner()
+      } catch {
+        setInboxRefreshToast(null)
+      }
+    }
+    const id = window.setInterval(run, INTERVAL_MS)
+    return () => {
+      window.clearInterval(id)
+      silentInboxRefreshGenRef.current += 1
+    }
+  }, [
+    userId,
+    gmailConnected,
+    prefetchBodiesFirstFifty,
+    prefetchNextGmailListPage,
+    showInboxRefreshLoadingBanner,
+    showInboxRefreshSuccessBanner,
+  ])
 
   useEffect(() => {
     let cancelled = false
@@ -798,6 +929,26 @@ export default function Home() {
             subtitle={gmailEmail || signedInEmail || 'Gmail connected'}
           />
 
+          {inboxRefreshToast ? (
+            <div
+              role="status"
+              aria-live={inboxRefreshToast === 'loading' ? 'assertive' : 'polite'}
+              aria-busy={inboxRefreshToast === 'loading' ? true : undefined}
+              className="pointer-events-none fixed top-20 left-1/2 z-[45] -translate-x-1/2"
+            >
+              <div
+                className={[
+                  'rounded-lg px-4 py-2 text-center text-sm font-medium shadow-lg ring-1',
+                  inboxRefreshToast === 'loading'
+                    ? 'border border-amber-200 bg-amber-50 text-amber-950 ring-black/5'
+                    : 'border border-green-200 bg-green-50 text-green-950 ring-black/5',
+                ].join(' ')}
+              >
+                {inboxRefreshToast === 'loading' ? 'Refreshing…' : 'Inbox refreshed.'}
+              </div>
+            </div>
+          ) : null}
+
           {workflowBusy ? (
             <div
               role="status"
@@ -840,8 +991,12 @@ export default function Home() {
                     type="button"
                     onClick={() => {
                       if (!userId) return
+                      showInboxRefreshLoadingBanner()
                       clearInboxNavSession(userId)
-                      void loadGmailMessagesPageAt(userId, null, 0, [null])
+                      void loadGmailMessagesPageAt(userId, null, 0, [null], {
+                        onRefreshComplete: showInboxRefreshSuccessBanner,
+                        onRefreshFailed: () => setInboxRefreshToast(null),
+                      })
                     }}
                     disabled={gmailMessagesBusy}
                     className="ml-0.5 rounded border border-gray-300 px-1.5 py-0.5 text-base leading-none text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
@@ -951,7 +1106,10 @@ export default function Home() {
                   </button>
                 </div>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 py-5 lg:px-8 lg:py-6">
+              <div
+                ref={readerScrollRef}
+                className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 py-5 lg:px-8 lg:py-6"
+              >
                 {replyNotice ? (
                   <p className="mb-3 text-sm font-medium text-green-700">{replyNotice}</p>
                 ) : null}
@@ -971,8 +1129,9 @@ export default function Home() {
                     </div>
                     {replyOpen ? (
                       <form
+                        ref={replyFormRef}
                         onSubmit={(e) => void handleSendReply(e)}
-                        className="mt-6 border-t border-gray-100 pt-4"
+                        className="mt-6 scroll-mt-4 border-t border-gray-100 pt-4"
                       >
                         {replyError ? (
                           <p className="mb-2 text-sm text-red-600">{replyError}</p>

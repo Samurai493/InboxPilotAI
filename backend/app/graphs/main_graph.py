@@ -387,7 +387,7 @@ def extract_tasks(state: InboxPilotState) -> InboxPilotState:
         [
             (
                 "system",
-                """Return ONLY a JSON array of tasks. Each object: {"description":str,"due_date":str|null ISO if known,"priority":"low"|"medium"|"high"}.
+                """Return ONLY a JSON array of tasks. Each object: {{"description":str,"due_date":str|null ISO if known,"priority":"low"|"medium"|"high"}}.
 Use [] if none.""",
             ),
             ("user", "Message:\n{message}"),

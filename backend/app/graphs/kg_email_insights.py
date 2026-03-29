@@ -44,14 +44,32 @@ def format_kg_insights_for_prompt(state: InboxPilotState) -> str:
     """Appendable block for draft/specialist prompts when synthesis ran."""
     ctx = state.get("email_context")
     summary = state.get("email_summary")
+    substance = state.get("email_substance")
+    request = state.get("sender_request")
+    thinking = state.get("response_thinking")
     follow = state.get("follow_ups") or []
-    if not ctx and not summary and not (isinstance(follow, list) and follow):
+    if not any(
+        [
+            ctx,
+            summary,
+            substance,
+            request,
+            thinking,
+            isinstance(follow, list) and follow,
+        ]
+    ):
         return ""
     parts: list[str] = []
     if summary:
-        parts.append(f"Summary: {summary}")
+        parts.append(f"Headline: {summary}")
+    if substance:
+        parts.append(f"What the email contains: {substance}")
+    if request:
+        parts.append(f"What they want / are asking: {request}")
+    if thinking:
+        parts.append(f"Suggested reply approach: {thinking}")
     if ctx:
-        parts.append(f"Context (memory/graph): {ctx}")
+        parts.append(f"Memory/graph context: {ctx}")
     if isinstance(follow, list) and follow:
         parts.append("Suggested follow-ups: " + "; ".join(str(x) for x in follow[:8]))
     return "\n".join(parts)
@@ -90,9 +108,17 @@ def synthesize_email_insights(state: InboxPilotState) -> InboxPilotState:
         [
             (
                 "system",
-                """Inbox assistant: merge email + intent + prefs + graph memory into JSON only (no markdown):
-{{"email_context":"2-5 sentences who/what/why (use graph when relevant)","email_summary":"1-3 neutral sentences","follow_ups":["concrete next steps for recipient, max 6"]}}
-Use [] for follow_ups if none.""",
+                """You are an inbox analyst. Output one JSON object only (valid JSON, no markdown fences).
+
+Required keys (all strings except follow_ups; use "" for an empty string, never null):
+- email_summary: One short headline (≤25 words) capturing the thread.
+- email_substance: 2–5 sentences describing what the email actually says—topics, facts, key details, who did what.
+- sender_request: 2–5 sentences on what the sender wants, asks, or expects (explicit asks, questions, deadlines, implied goals).
+- response_thinking: 2–6 sentences on how a good reply should be shaped—priorities, tone, what to address first, caveats, how user preferences fit.
+- email_context: 1–3 sentences linking knowledge-graph or memory hints to this message; use "" if nothing applies.
+- follow_ups: JSON array of up to 6 short strings—concrete next steps for the recipient; use [] if none.
+
+Be specific to the email body. Do not invent requests not supported by the text.""",
             ),
             (
                 "user",
@@ -116,36 +142,64 @@ Use [] for follow_ups if none.""",
         }
     )
     raw = get_text_content(response).strip()
+    if raw.startswith("```"):
+        lines = raw.split("\n")
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        raw = "\n".join(lines).strip()
 
     email_context: str | None = None
     email_summary: str | None = None
+    email_substance: str | None = None
+    sender_request: str | None = None
+    response_thinking: str | None = None
     follow_ups: list[str] = []
+
+    def _str_field(obj: dict[str, Any], key: str) -> str | None:
+        v = obj.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        return None
 
     try:
         parsed = json.loads(raw)
-        if isinstance(parsed.get("email_context"), str) and parsed["email_context"].strip():
-            email_context = parsed["email_context"].strip()
-        if isinstance(parsed.get("email_summary"), str) and parsed["email_summary"].strip():
-            email_summary = parsed["email_summary"].strip()
+        if not isinstance(parsed, dict):
+            raise ValueError("not an object")
+        email_context = _str_field(parsed, "email_context")
+        email_summary = _str_field(parsed, "email_summary")
+        email_substance = _str_field(parsed, "email_substance")
+        sender_request = _str_field(parsed, "sender_request")
+        response_thinking = _str_field(parsed, "response_thinking")
         fu = parsed.get("follow_ups")
         if isinstance(fu, list):
             follow_ups = [str(x).strip() for x in fu if str(x).strip()][:8]
     except (json.JSONDecodeError, TypeError, ValueError):
-        email_summary = message[:400] + ("…" if len(message) > 400 else "")
+        snippet = message[:400] + ("…" if len(message) > 400 else "")
+        email_summary = "Insights unavailable (parse error)"
+        email_substance = snippet
         email_context = (
-            f"Intent={intent}; urgency={urgency}. Graph memory available but JSON parse failed; "
-            "use raw email and listed entities for reasoning."
+            f"Intent={intent}; urgency={urgency}. JSON parse failed—fall back to the raw email above."
+        )
+        sender_request = "See raw email; automated extraction failed."
+        response_thinking = (
+            "Read the email carefully, match the sender's tone, and address their explicit asks directly."
         )
 
     return {
         "email_context": email_context,
         "email_summary": email_summary,
+        "email_substance": email_substance,
+        "sender_request": sender_request,
+        "response_thinking": response_thinking,
         "follow_ups": follow_ups or None,
         "audit_log": [
             {
                 "node": "synthesize_email_insights",
                 "action": "insights_ready",
                 "has_summary": bool(email_summary),
+                "has_substance": bool(email_substance),
                 "follow_ups_count": len(follow_ups),
             }
         ],
