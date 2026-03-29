@@ -1,7 +1,7 @@
 'use client'
 
-import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react'
+import { AppNav } from '@/components/AppNav'
 import {
   type AppSettings,
   buildBackendEnvFileContent,
@@ -218,23 +218,17 @@ export default function SettingsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-blue-50 to-white">
+    <>
+      <AppNav layout="compact" />
+      <main className="min-h-screen bg-gradient-to-b from-blue-50 to-white">
       <div className="container mx-auto max-w-3xl px-4 py-10">
-        <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-            <p className="mt-1 text-sm text-gray-600">
-              Local configuration for this browser. Use <strong>Import from .env</strong> to pull{' '}
-              <code className="text-xs">NEXT_PUBLIC_*</code> from the frontend build env and (optionally) the running
-              API&apos;s loaded <code className="text-xs">backend/.env</code>.
-            </p>
-          </div>
-          <Link
-            href="/"
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-          >
-            Back to home
-          </Link>
+        <div className="mb-8">
+          <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
+          <p className="mt-1 text-sm text-gray-600">
+            Local configuration for this browser. Use <strong>Import from .env</strong> to pull{' '}
+            <code className="text-xs">NEXT_PUBLIC_*</code> from the frontend build env and (optionally) the running
+            API&apos;s loaded <code className="text-xs">backend/.env</code>.
+          </p>
         </div>
 
         <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
@@ -614,5 +608,6 @@ export default function SettingsPage() {
         {copyMsg ? <p className="mt-2 text-sm text-gray-700">{copyMsg}</p> : null}
       </div>
     </main>
+    </>
   )
 }

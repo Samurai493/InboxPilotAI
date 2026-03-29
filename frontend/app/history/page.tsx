@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
+import { AppNav } from '@/components/AppNav'
 import { listWorkflowThreads } from '@/lib/api'
 import type { WorkflowThreadSummary } from '@/lib/api'
 import { getStoredUserId } from '@/lib/user-session'
@@ -38,16 +39,12 @@ export default function WorkflowHistoryPage() {
   }, [load])
 
   return (
-    <main className="min-h-screen bg-gray-50 py-10">
+    <>
+      <AppNav layout="compact" />
+      <main className="min-h-screen bg-gray-50 py-10">
       <div className="container mx-auto max-w-3xl px-4">
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Workflow history</h1>
-          <Link
-            href="/"
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-          >
-            Back to inbox
-          </Link>
         </div>
         <p className="mb-6 text-sm text-gray-600">
           Saved runs are stored in your database with the LangGraph thread id. Open a row to review
@@ -58,7 +55,14 @@ export default function WorkflowHistoryPage() {
           <p className="text-gray-600">Loading…</p>
         ) : error ? (
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-            {error}
+            <p>{error}</p>
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="mt-3 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700"
+            >
+              Retry
+            </button>
           </div>
         ) : threads.length === 0 ? (
           <p className="text-gray-600">No saved workflows yet. Run InboxPilot on an email from the inbox.</p>
@@ -109,5 +113,6 @@ export default function WorkflowHistoryPage() {
         )}
       </div>
     </main>
+    </>
   )
 }

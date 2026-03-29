@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { AppNav } from '@/components/AppNav'
 import { getApiBaseUrl } from '@/lib/app-settings'
 import { getAuthHeaders } from '@/lib/api'
 
@@ -58,27 +59,33 @@ export default function AdminDashboard() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-gray-50 py-12">
-        <div className="container mx-auto px-4 max-w-6xl">
-          <div className="bg-white rounded-lg shadow-lg p-8 text-center">
-            <p className="text-gray-600">Loading metrics...</p>
+      <>
+        <AppNav layout="compact" />
+        <main className="min-h-screen bg-gray-50 py-12">
+          <div className="container mx-auto max-w-6xl px-4">
+            <div className="rounded-lg bg-white p-8 text-center shadow-lg">
+              <p className="text-gray-600">Loading metrics…</p>
+            </div>
           </div>
-        </div>
-      </main>
+        </main>
+      </>
     )
   }
 
   if (error || !metrics) {
     return (
-      <main className="min-h-screen bg-gray-50 py-12">
-        <div className="container mx-auto px-4 max-w-6xl">
-          <div className="bg-white rounded-lg shadow-lg p-8">
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-              {error || 'Failed to load metrics'}
+      <>
+        <AppNav layout="compact" />
+        <main className="min-h-screen bg-gray-50 py-12">
+          <div className="container mx-auto max-w-6xl px-4">
+            <div className="rounded-lg bg-white p-8 shadow-lg">
+              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-700">
+                {error || 'Failed to load metrics'}
+              </div>
             </div>
           </div>
-        </div>
-      </main>
+        </main>
+      </>
     )
   }
 
@@ -87,8 +94,10 @@ export default function AdminDashboard() {
     : '0.0'
 
   return (
-    <main className="min-h-screen bg-gray-50 py-12">
-      <div className="container mx-auto px-4 max-w-6xl">
+    <>
+      <AppNav layout="compact" />
+      <main className="min-h-screen bg-gray-50 py-12">
+      <div className="container mx-auto max-w-6xl px-4">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Admin Dashboard</h1>
           <p className="text-gray-600">Quality metrics and system overview</p>
@@ -144,6 +153,7 @@ export default function AdminDashboard() {
         </div>
       </div>
     </main>
+    </>
   )
 }
 

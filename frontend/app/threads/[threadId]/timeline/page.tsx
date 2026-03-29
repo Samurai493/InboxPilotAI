@@ -1,7 +1,9 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
+import { AppNav } from '@/components/AppNav'
 import { getApiBaseUrl } from '@/lib/app-settings'
 import { getAuthHeaders } from '@/lib/api'
 
@@ -57,33 +59,41 @@ export default function ThreadTimelinePage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-gray-50 py-12">
-        <div className="container mx-auto px-4 max-w-4xl">
-          <div className="bg-white rounded-lg shadow-lg p-8 text-center">
-            <p className="text-gray-600">Loading timeline...</p>
+      <>
+        <AppNav layout="compact" />
+        <main className="min-h-screen bg-gray-50 py-12">
+          <div className="container mx-auto max-w-4xl px-4">
+            <div className="rounded-lg bg-white p-8 text-center shadow-lg">
+              <p className="text-gray-600">Loading timeline…</p>
+            </div>
           </div>
-        </div>
-      </main>
+        </main>
+      </>
     )
   }
 
   if (error || !history) {
     return (
-      <main className="min-h-screen bg-gray-50 py-12">
-        <div className="container mx-auto px-4 max-w-4xl">
-          <div className="bg-white rounded-lg shadow-lg p-8">
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-              {error || 'History not found'}
+      <>
+        <AppNav layout="compact" />
+        <main className="min-h-screen bg-gray-50 py-12">
+          <div className="container mx-auto max-w-4xl px-4">
+            <div className="rounded-lg bg-white p-8 shadow-lg">
+              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-700">
+                {error || 'History not found'}
+              </div>
             </div>
           </div>
-        </div>
-      </main>
+        </main>
+      </>
     )
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 py-12">
-      <div className="container mx-auto px-4 max-w-4xl">
+    <>
+      <AppNav layout="compact" />
+      <main className="min-h-screen bg-gray-50 py-12">
+      <div className="container mx-auto max-w-4xl px-4">
         <div className="bg-white rounded-lg shadow-lg p-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-6">Thread Timeline</h1>
           <p className="text-gray-600 mb-8">Thread ID: {threadId}</p>
@@ -132,15 +142,16 @@ export default function ThreadTimelinePage() {
           )}
 
           <div className="mt-8">
-            <a
-              href={`/results/${threadId}`}
-              className="text-primary-600 hover:text-primary-700 font-semibold"
+            <Link
+              href={`/results/${encodeURIComponent(threadId)}`}
+              className="font-semibold text-primary-600 hover:text-primary-700"
             >
-              ← Back to Results
-            </a>
+              ← Back to results
+            </Link>
           </div>
         </div>
       </div>
     </main>
+    </>
   )
 }

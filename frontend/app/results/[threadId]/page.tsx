@@ -1,7 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import Link from 'next/link'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
+import { AppNav } from '@/components/AppNav'
 import { getThreadState } from '@/lib/api'
 import { loadCachedThreadState } from '@/lib/thread-state-cache'
 import { WorkflowKnowledgeViz } from '@/components/WorkflowKnowledgeViz'
@@ -65,90 +67,116 @@ export default function ResultsPage() {
   const [error, setError] = useState<string | null>(null)
   const [stateLoadSource, setStateLoadSource] = useState<string | null>(null)
 
-  useEffect(() => {
-    const fetchThread = async () => {
-      try {
-        const result = await getThreadState(threadId)
-        if (result.state) {
-          setStateLoadSource(result.source ?? null)
-          setThreadState({
-            thread_id: result.thread_id,
-            state: result.state as ThreadState['state'],
-            status: result.status,
-          })
-        } else {
-          setStateLoadSource(null)
-          const cached = loadCachedThreadState(threadId)
-          setThreadState(
-            cached
-              ? { thread_id: threadId, state: cached as ThreadState['state'], status: 'found' }
-              : {
-                  thread_id: result.thread_id,
-                  state: null,
-                  status: result.status,
-                },
-          )
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load thread')
-      } finally {
-        setLoading(false)
+  const loadThread = useCallback(async () => {
+    if (!threadId) return
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await getThreadState(threadId)
+      if (result.state) {
+        setStateLoadSource(result.source ?? null)
+        setThreadState({
+          thread_id: result.thread_id,
+          state: result.state as ThreadState['state'],
+          status: result.status,
+        })
+      } else {
+        setStateLoadSource(null)
+        const cached = loadCachedThreadState(threadId)
+        setThreadState(
+          cached
+            ? { thread_id: threadId, state: cached as ThreadState['state'], status: 'found' }
+            : {
+                thread_id: result.thread_id,
+                state: null,
+                status: result.status,
+              },
+        )
       }
-    }
-
-    if (threadId) {
-      fetchThread()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load thread')
+    } finally {
+      setLoading(false)
     }
   }, [threadId])
 
+  useEffect(() => {
+    void loadThread()
+  }, [loadThread])
+
   if (loading) {
     return (
-      <main className="min-h-screen bg-gray-50 py-12">
-        <div className="container mx-auto px-4 max-w-4xl">
-          <div className="bg-white rounded-lg shadow-lg p-8 text-center">
-            <p className="text-gray-600">Loading results...</p>
+      <>
+        <AppNav layout="compact" />
+        <main className="min-h-screen bg-gray-50 py-12">
+          <div className="container mx-auto max-w-4xl px-4">
+            <div className="rounded-lg bg-white p-8 text-center shadow-lg">
+              <p className="text-gray-600">Loading results…</p>
+            </div>
           </div>
-        </div>
-      </main>
+        </main>
+      </>
     )
   }
 
   if (error || !threadState) {
     return (
-      <main className="min-h-screen bg-gray-50 py-12">
-        <div className="container mx-auto px-4 max-w-4xl">
-          <div className="bg-white rounded-lg shadow-lg p-8">
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-              {error || 'Thread not found'}
+      <>
+        <AppNav layout="compact" />
+        <main className="min-h-screen bg-gray-50 py-12">
+          <div className="container mx-auto max-w-4xl px-4">
+            <div className="rounded-lg bg-white p-8 shadow-lg">
+              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-700">
+                {error || 'Thread not found'}
+              </div>
+              <button
+                type="button"
+                onClick={() => void loadThread()}
+                className="mt-4 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700"
+              >
+                Retry
+              </button>
             </div>
           </div>
-        </div>
-      </main>
+        </main>
+      </>
     )
   }
 
   if (!threadState.state) {
     return (
-      <main className="min-h-screen bg-gray-50 py-12">
-        <div className="container mx-auto px-4 max-w-4xl">
-          <div className="bg-white rounded-lg shadow-lg p-8">
-            <p className="text-gray-700">
-              No workflow state found for this thread. The server may have restarted (in-memory
-              checkpointer), or this id is invalid. If you enabled database persistence, ensure the API
-              can reach Postgres and that this thread was saved after a run.
-            </p>
-            <p className="mt-2 text-sm text-gray-500">Thread ID: {threadId}</p>
+      <>
+        <AppNav layout="compact" />
+        <main className="min-h-screen bg-gray-50 py-12">
+          <div className="container mx-auto max-w-4xl px-4">
+            <div className="rounded-lg bg-white p-8 shadow-lg">
+              <p className="text-gray-700">
+                No workflow state found for this thread. The server may have restarted (in-memory
+                checkpointer), or this id is invalid. If you enabled database persistence, ensure the API
+                can reach Postgres and that this thread was saved after a run.
+              </p>
+              <p className="mt-2 text-sm text-gray-500">Thread ID: {threadId}</p>
+              <button
+                type="button"
+                onClick={() => void loadThread()}
+                className="mt-4 rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
+              >
+                Retry load
+              </button>
+            </div>
           </div>
-        </div>
-      </main>
+        </main>
+      </>
     )
   }
 
   const state = threadState.state
 
   return (
-    <main className="min-h-screen bg-gray-50 py-12">
-      <div className="container mx-auto px-4 max-w-4xl space-y-6">
+    <>
+      <AppNav layout="compact" />
+      <main className="min-h-screen bg-gray-50 py-12">
+      <div className="container mx-auto max-w-4xl space-y-6 px-4">
         {/* Header */}
         <div className="bg-white rounded-lg shadow-lg p-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-4">Processing Results</h1>
@@ -376,23 +404,24 @@ export default function ResultsPage() {
         )}
 
         {/* Actions */}
-        <div className="bg-white rounded-lg shadow-lg p-8">
+        <div className="rounded-lg bg-white p-8 shadow-lg">
           <div className="flex flex-wrap gap-4">
-            <a
+            <Link
               href="/"
-              className="border border-gray-300 text-gray-800 px-6 py-3 rounded-lg font-semibold hover:bg-gray-50 transition-colors"
+              className="rounded-lg border border-gray-300 px-6 py-3 font-semibold text-gray-800 transition-colors hover:bg-gray-50"
             >
               Back to inbox
-            </a>
-            <a
+            </Link>
+            <Link
               href="/inbox"
-              className="bg-primary-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-primary-700 transition-colors"
+              className="rounded-lg bg-primary-600 px-6 py-3 font-semibold text-white transition-colors hover:bg-primary-700"
             >
-              Process Another Message
-            </a>
+              Paste another message
+            </Link>
           </div>
         </div>
       </div>
     </main>
+    </>
   )
 }

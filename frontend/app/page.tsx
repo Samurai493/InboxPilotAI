@@ -2,6 +2,8 @@
 
 import Link from 'next/link'
 import Script from 'next/script'
+import { AppNav } from '@/components/AppNav'
+import { clearBrowserSession } from '@/lib/browser-session'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
@@ -21,21 +23,13 @@ import type { GmailStatusResponse } from '@/lib/api'
 import { clearGoogleIdToken, getGoogleIdToken, setGoogleIdToken } from '@/lib/auth-session'
 import { clearGuestSessionFully, setStoredUserId } from '@/lib/user-session'
 import { getGoogleClientIdForGis } from '@/lib/app-settings'
-import {
-  clearGmailInboxPagesLocalStorage,
-  getCachedInboxPage,
-  saveInboxPageToLocalStorage,
-} from '@/lib/gmail-inbox-pages-local-cache'
+import { getCachedInboxPage, saveInboxPageToLocalStorage } from '@/lib/gmail-inbox-pages-local-cache'
 import {
   clearInboxNavSession,
   readInboxNavSession,
   saveInboxNavSession,
 } from '@/lib/inbox-nav-session'
-import {
-  clearGmailMessagesLocalStorage,
-  mergeGmailMessagesFromLocalStorage,
-  saveGmailMessageToLocalStorage,
-} from '@/lib/gmail-message-local-cache'
+import { mergeGmailMessagesFromLocalStorage, saveGmailMessageToLocalStorage } from '@/lib/gmail-message-local-cache'
 import { cacheThreadState } from '@/lib/thread-state-cache'
 
 /** Inbox list page size and body-prefetch depth (matches `/gmail/messages/page` default). */
@@ -103,6 +97,7 @@ export default function Home() {
   const [selectedGmailMessageBusy, setSelectedGmailMessageBusy] = useState(false)
   const [selectedGmailMessageError, setSelectedGmailMessageError] = useState<string | null>(null)
   const [gmailConnectedFromQuery, setGmailConnectedFromQuery] = useState(false)
+  const [gmailLinkTimedOut, setGmailLinkTimedOut] = useState(false)
 
   const [composeOpen, setComposeOpen] = useState(false)
   const [composeTo, setComposeTo] = useState('')
@@ -399,6 +394,22 @@ export default function Home() {
   }, [gmailConnected])
 
   useEffect(() => {
+    if (gmailConnected) setGmailLinkTimedOut(false)
+  }, [gmailConnected])
+
+  useEffect(() => {
+    if (gmailConnectedFromQuery) setGmailLinkTimedOut(false)
+  }, [gmailConnectedFromQuery])
+
+  useEffect(() => {
+    if (!composeOpen) return
+    const id = requestAnimationFrame(() => {
+      document.getElementById('compose-to')?.focus()
+    })
+    return () => cancelAnimationFrame(id)
+  }, [composeOpen])
+
+  useEffect(() => {
     if (!userId || !gmailConnected) return
     let alive = true
     void (async () => {
@@ -477,6 +488,8 @@ export default function Home() {
         setTimeout(() => {
           void poll(attempt + 1)
         }, 1000 * attempt)
+      } else if (!cancelled) {
+        setGmailLinkTimedOut(true)
       }
     }
 
@@ -558,15 +571,10 @@ export default function Home() {
     }
   }
 
-  const signOut = () => {
-    if (userId) {
-      clearGmailMessagesLocalStorage(userId)
-      clearGmailInboxPagesLocalStorage(userId)
-      clearInboxNavSession(userId)
-    }
+  const signOut = async () => {
+    const uid = userId
+    await clearBrowserSession(uid)
     inboxSessionHydratedRef.current = false
-    clearGoogleIdToken()
-    void clearGuestSessionFully()
     detailAbortRef.current?.abort()
     detailAbortRef.current = null
     pendingDetailMessageIdRef.current = null
@@ -703,57 +711,47 @@ export default function Home() {
       />
       {userId && gmailConnected ? (
         <>
-          <header className="flex shrink-0 items-center justify-between gap-4 border-b border-gray-200 bg-white px-4 py-3 shadow-sm">
-            <div className="min-w-0">
-              <div className="text-lg font-semibold text-gray-900">InboxPilot</div>
-              <div className="truncate text-xs text-gray-500">
-                {gmailEmail || signedInEmail || 'Gmail connected'}
-              </div>
+          <AppNav
+            layout="workspace"
+            subtitle={gmailEmail || signedInEmail || 'Gmail connected'}
+            trailing={
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!userId) return
+                    clearInboxNavSession(userId)
+                    void loadGmailMessagesPageAt(userId, null, 0, [null])
+                  }}
+                  disabled={gmailMessagesBusy}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:bg-gray-100"
+                >
+                  {gmailMessagesBusy ? 'Loading…' : 'Refresh'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setComposeError(null)
+                    setComposeOpen(true)
+                  }}
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                >
+                  Compose
+                </button>
+              </>
+            }
+          />
+
+          {workflowBusy ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="shrink-0 border-b border-primary-200 bg-primary-50 px-4 py-2 text-center text-sm font-medium text-primary-950"
+            >
+              Running InboxPilot on this message… This can take up to a minute. Please keep this tab
+              open.
             </div>
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-              <Link
-                href="/history"
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-              >
-                Workflow history
-              </Link>
-              <Link
-                href="/settings"
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-              >
-                Settings
-              </Link>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!userId) return
-                  clearInboxNavSession(userId)
-                  void loadGmailMessagesPageAt(userId, null, 0, [null])
-                }}
-                disabled={gmailMessagesBusy}
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:bg-gray-100"
-              >
-                {gmailMessagesBusy ? 'Loading…' : 'Refresh'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setComposeError(null)
-                  setComposeOpen(true)
-                }}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-              >
-                Compose
-              </button>
-              <button
-                type="button"
-                onClick={signOut}
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-              >
-                Sign out
-              </button>
-            </div>
-          </header>
+          ) : null}
 
           <div className="flex min-h-0 min-w-0 flex-1">
             <aside className="flex w-full max-w-[22rem] shrink-0 flex-col border-r border-gray-200 bg-white min-h-0">
@@ -793,10 +791,13 @@ export default function Home() {
                 ) : null}
                 {gmailMessages.map((m) => {
                   const isSelected = m.id === selectedGmailMessageId
+                  const subj = m.subject || 'No subject'
                   return (
                     <button
                       key={m.id}
                       type="button"
+                      aria-current={isSelected ? 'true' : undefined}
+                      aria-label={`${subj}, from ${m.from_email}`}
                       onClick={() => {
                         if (!userId) return
                         setSelectedGmailMessageId(m.id)
@@ -970,15 +971,20 @@ export default function Home() {
           ) : null}
         </>
       ) : (
-      <div className="container relative mx-auto px-4 py-16">
-        <div className="absolute right-4 top-4 z-10 sm:right-8 sm:top-6">
-          <Link
-            href="/settings"
-            className="inline-flex items-center rounded-lg border border-gray-200 bg-white/90 px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50"
+      <>
+        <AppNav layout="compact" />
+        {userId && !gmailConnected && (gmailConnectedFromQuery || gmailLinkTimedOut) ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-950"
           >
-            Settings
-          </Link>
-        </div>
+            {gmailLinkTimedOut
+              ? 'Could not confirm Gmail yet. Try Connect Gmail again, or open Settings if the problem continues.'
+              : 'Finishing Gmail connection…'}
+          </div>
+        ) : null}
+        <div className="container relative mx-auto px-4 py-16">
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-5xl font-bold text-gray-900 mb-6">
             InboxPilot AI
@@ -996,7 +1002,10 @@ export default function Home() {
             Powered by LangGraph • Classify • Draft • Extract • Review
           </p>
 
-          <div className="max-w-xl mx-auto mb-10 rounded-lg border border-gray-200 bg-white p-6 text-left shadow-sm">
+          <div
+            id="account"
+            className="max-w-xl mx-auto mb-10 scroll-mt-24 rounded-lg border border-gray-200 bg-white p-6 text-left shadow-sm"
+          >
             <h2 className="text-lg font-semibold text-gray-900 mb-2">
               Account + Gmail
             </h2>
@@ -1025,7 +1034,7 @@ export default function Home() {
                 </button>
                 <button
                   type="button"
-                  onClick={signOut}
+                  onClick={() => void signOut()}
                   className="mt-3 w-full rounded-lg border border-gray-300 px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
                 >
                   Sign out
@@ -1034,18 +1043,18 @@ export default function Home() {
             )}
           </div>
 
-          <div className="flex gap-4 justify-center">
+          <div className="flex flex-wrap gap-4 justify-center">
             <Link
-              href="/inbox"
+              href="/#account"
               className="bg-primary-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-primary-700 transition-colors"
             >
-              Get Started
+              Sign in &amp; Gmail inbox
             </Link>
             <Link
               href="/inbox"
               className="border-2 border-primary-600 text-primary-600 px-8 py-3 rounded-lg font-semibold hover:bg-primary-50 transition-colors"
             >
-              Try Demo
+              Paste a message (no Gmail)
             </Link>
           </div>
 
@@ -1071,6 +1080,7 @@ export default function Home() {
           </div>
         </div>
       </div>
+      </>
       )}
     </main>
   )

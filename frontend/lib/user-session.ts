@@ -13,6 +13,11 @@ export function setStoredUserId(id: string): void {
   localStorage.setItem(STORAGE_KEY, id)
 }
 
+export function clearStoredUserId(): void {
+  if (typeof window === 'undefined') return
+  localStorage.removeItem(STORAGE_KEY)
+}
+
 export function getGuestAccessToken(): string | null {
   if (typeof window === 'undefined') return null
   return localStorage.getItem(GUEST_TOKEN_KEY)

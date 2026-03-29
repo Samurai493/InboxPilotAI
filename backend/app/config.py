@@ -7,7 +7,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Application settings."""
 
-    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=True,
+        # Ignore keys in .env that are not model fields (avoids crashes when pruning features).
+        extra="ignore",
+    )
 
     # API Configuration
     API_V1_PREFIX: str = "/api/v1"
