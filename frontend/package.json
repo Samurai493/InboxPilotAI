@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint ."
   },
   "dependencies": {
     "@types/node": "^20.10.5",
@@ -19,7 +19,7 @@
   },
   "devDependencies": {
     "autoprefixer": "^10.4.16",
-    "eslint": "^8.56.0",
+    "eslint": "^9.16.0",
     "eslint-config-next": "^16.2.1",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0"
