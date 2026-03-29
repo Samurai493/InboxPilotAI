@@ -1,7 +1,11 @@
-/** @type {import('next').NextConfig} */
-const path = require('path')
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const isProd = process.env.NODE_ENV === 'production'
+
+/** @type {import('next').NextConfig} */
 const nextConfig = {
   // Lockfile in the user profile (e.g. C:\Users\...\package-lock.json) can be
   // picked up before frontend/; pin Turbopack’s filesystem root to this app.
@@ -10,7 +14,6 @@ const nextConfig = {
   },
   reactStrictMode: true,
   async headers() {
-    // Production: drop unsafe-eval where Next allows (dev/HMR still needs eval).
     const scriptSrc = isProd
       ? "script-src 'self' 'unsafe-inline' https://accounts.google.com https://apis.google.com"
       : "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com https://apis.google.com"
@@ -33,4 +36,4 @@ const nextConfig = {
   },
 }
 
-module.exports = nextConfig
+export default nextConfig

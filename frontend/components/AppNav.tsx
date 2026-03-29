@@ -52,7 +52,9 @@ export function AppNav({ subtitle, trailing, layout = 'compact' }: AppNavProps) 
   const [signOutBusy, setSignOutBusy] = useState(false)
 
   useEffect(() => {
-    setUserId(getStoredUserId())
+    queueMicrotask(() => {
+      setUserId(getStoredUserId())
+    })
   }, [pathname])
 
   const handleSignOut = useCallback(async () => {
