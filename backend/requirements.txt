@@ -11,7 +11,7 @@ pydantic-settings==2.11.0
 sqlalchemy==2.0.38
 alembic==1.12.1
 psycopg2-binary==2.9.11
-redis==5.0.1
+redis==7.4.0
 
 # LangGraph and LangChain
 # langgraph 0.2.x capped langgraph-checkpoint<3 (CVE-2025-64439, CVE-2026-27794 → checkpoint>=4).
