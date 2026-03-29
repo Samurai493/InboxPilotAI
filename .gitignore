@@ -12,5 +12,11 @@ ENV/
 .DS_Store
 Thumbs.db
 
+# Cursor — local/agent skills (often machine-specific or duplicated from ~/.cursor)
+.cursor/skills/
+
+# Ad-hoc debug logs at repo root
+debug-*.log
+
 # Root-level docs (context packs, session notes); keep out of remote if you prefer local-only
 /docs/
