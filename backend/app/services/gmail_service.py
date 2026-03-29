@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import time
 from email.mime.text import MIMEText
+from email.utils import parseaddr
 from typing import Any, Dict, List, Optional
 
 from google.oauth2.credentials import Credentials
@@ -319,3 +320,80 @@ class GmailService:
             return draft
         except HttpError as error:
             raise Exception(f"An error occurred: {error}")
+
+    def _collect_headers_rfc822(self, payload: Dict[str, Any]) -> Dict[str, str]:
+        """Merge headers from root and nested parts (multipart messages)."""
+        merged: Dict[str, str] = {}
+        for h in payload.get("headers", []) or []:
+            if not h.get("name"):
+                continue
+            k = str(h["name"]).lower()
+            merged.setdefault(k, str(h.get("value", "")))
+        for part in payload.get("parts") or []:
+            inner = self._collect_headers_rfc822(part)
+            for k, v in inner.items():
+                merged.setdefault(k, v)
+        return merged
+
+    def send_reply(self, message_id: str, body_text: str) -> Dict[str, Any]:
+        """Send a plain-text reply in the same thread (RFC 2822 In-Reply-To / References)."""
+        if not self.service:
+            raise ValueError("Gmail service not initialized. Credentials required.")
+
+        try:
+            full = self.service.users().messages().get(
+                userId="me",
+                id=message_id,
+                format="full",
+            ).execute()
+        except HttpError as error:
+            raise Exception(f"An error occurred: {error}") from error
+
+        thread_id = full.get("threadId")
+        payload = full.get("payload", {})
+        h = self._collect_headers_rfc822(payload)
+
+        reply_hdr = h.get("reply-to", "").strip()
+        from_hdr = h.get("from", "").strip()
+        _, to_addr = parseaddr(reply_hdr or from_hdr)
+        if not to_addr:
+            raise ValueError("Could not determine reply recipient (From / Reply-To).")
+
+        orig_subj = h.get("subject", "").strip()
+        if orig_subj:
+            subj_lower = orig_subj.lower()
+            if not (subj_lower.startswith("re:") or subj_lower.startswith("re :")):
+                subject = f"Re: {orig_subj}"
+            else:
+                subject = orig_subj
+        else:
+            subject = "Re: (no subject)"
+
+        mime_msg_id = h.get("message-id", "").strip()
+        in_reply_prev = h.get("in-reply-to", "").strip()
+        refs_prev = h.get("references", "").strip()
+
+        mime = MIMEText(body_text, "plain", "utf-8")
+        mime["To"] = to_addr
+        mime["Subject"] = subject
+        if mime_msg_id:
+            mime["In-Reply-To"] = mime_msg_id
+            if refs_prev:
+                mime["References"] = f"{refs_prev} {mime_msg_id}".strip()
+            elif in_reply_prev:
+                mime["References"] = f"{in_reply_prev} {mime_msg_id}".strip()
+            else:
+                mime["References"] = mime_msg_id
+
+        raw_message = base64.urlsafe_b64encode(mime.as_bytes()).decode("utf-8")
+        send_body: Dict[str, Any] = {"raw": raw_message}
+        if thread_id:
+            send_body["threadId"] = thread_id
+
+        try:
+            return self.service.users().messages().send(
+                userId="me",
+                body=send_body,
+            ).execute()
+        except HttpError as error:
+            raise Exception(f"An error occurred: {error}") from error

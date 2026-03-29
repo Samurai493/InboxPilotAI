@@ -31,6 +31,7 @@ GMAIL_SCOPES: List[str] = [
     "https://www.googleapis.com/auth/userinfo.profile",
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.compose",
+    "https://www.googleapis.com/auth/gmail.send",
 ]
 
 _STATE_TTL_SECONDS = 900

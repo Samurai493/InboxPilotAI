@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   authenticateWithGoogleIdToken,
   createGmailDraft,
+  sendGmailReply,
   getAuthenticatedUser,
   getGmailAuthorizationUrl,
   getGmailStatus,
@@ -106,6 +107,12 @@ export default function Home() {
   const [composeBusy, setComposeBusy] = useState(false)
   const [composeError, setComposeError] = useState<string | null>(null)
 
+  const [replyOpen, setReplyOpen] = useState(false)
+  const [replyBody, setReplyBody] = useState('')
+  const [replyBusy, setReplyBusy] = useState(false)
+  const [replyError, setReplyError] = useState<string | null>(null)
+  const [replyNotice, setReplyNotice] = useState<string | null>(null)
+
   const [workflowBusy, setWorkflowBusy] = useState(false)
   const [workflowError, setWorkflowError] = useState<string | null>(null)
   const [savedThreadIdForMessage, setSavedThreadIdForMessage] = useState<string | null>(null)
@@ -133,6 +140,42 @@ export default function Home() {
     if (!userId) return
     mergeGmailMessagesFromLocalStorage(userId, bodyDetailCacheRef.current)
   }, [userId])
+
+  useEffect(() => {
+    setReplyOpen(false)
+    setReplyBody('')
+    setReplyError(null)
+    setReplyNotice(null)
+  }, [selectedGmailMessageId])
+
+  /** Stop document-level scroll / rubber-band so nothing behind the app (e.g. dark body) shows past the header. */
+  useEffect(() => {
+    if (!userId || !gmailConnected) return
+    const html = document.documentElement
+    const body = document.body
+    const prev = {
+      htmlOverflow: html.style.overflow,
+      htmlHeight: html.style.height,
+      htmlOverscroll: html.style.overscrollBehavior,
+      bodyOverflow: body.style.overflow,
+      bodyHeight: body.style.height,
+      bodyOverscroll: body.style.overscrollBehavior,
+    }
+    html.style.overflow = 'hidden'
+    html.style.height = '100%'
+    html.style.overscrollBehavior = 'none'
+    body.style.overflow = 'hidden'
+    body.style.height = '100%'
+    body.style.overscrollBehavior = 'none'
+    return () => {
+      html.style.overflow = prev.htmlOverflow
+      html.style.height = prev.htmlHeight
+      html.style.overscrollBehavior = prev.htmlOverscroll
+      body.style.overflow = prev.bodyOverflow
+      body.style.height = prev.bodyHeight
+      body.style.overscrollBehavior = prev.bodyOverscroll
+    }
+  }, [userId, gmailConnected])
 
   const refreshGmail = useCallback(async (uid: string): Promise<GmailStatusResponse> => {
     const status = await getGmailStatus(uid)
@@ -530,14 +573,30 @@ export default function Home() {
   }
 
   const handleGoogleScriptLoad = async () => {
-    let clientId = getGoogleClientIdForGis() || undefined
+    const fromEnv = getGoogleClientIdForGis()?.trim() || undefined
+    let clientId = fromEnv
+    let fromApi: string | undefined
     if (!clientId) {
       try {
         const runtimeConfig = await getPublicAuthConfig()
-        clientId = runtimeConfig.google_client_id ?? undefined
+        fromApi = runtimeConfig.google_client_id?.trim() ?? undefined
+        clientId = fromApi
       } catch {
         // Keep fallback error below.
       }
+    } else {
+      try {
+        const runtimeConfig = await getPublicAuthConfig()
+        fromApi = runtimeConfig.google_client_id?.trim() ?? undefined
+      } catch {
+        // Backend may be down; single-source env still works if IDs match when backend is up.
+      }
+    }
+    if (fromEnv && fromApi && fromEnv !== fromApi) {
+      setSessionError(
+        'Google client ID mismatch: NEXT_PUBLIC_GOOGLE_CLIENT_ID must exactly match backend GOOGLE_CLIENT_ID (same Web client ID). Update one of them and restart.',
+      )
+      return
     }
     if (!clientId) {
       setSessionError(
@@ -694,11 +753,34 @@ export default function Home() {
     }
   }
 
+  const handleSendReply = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!userId || !selectedGmailMessage) return
+    const text = replyBody.trim()
+    if (!text) {
+      setReplyError('Write a message before sending.')
+      return
+    }
+    setReplyBusy(true)
+    setReplyError(null)
+    setReplyNotice(null)
+    try {
+      await sendGmailReply(selectedGmailMessage.id, text, userId)
+      setReplyNotice('Reply sent.')
+      setReplyBody('')
+      setReplyOpen(false)
+    } catch (err) {
+      setReplyError(err instanceof Error ? err.message : 'Could not send reply')
+    } finally {
+      setReplyBusy(false)
+    }
+  }
+
   return (
     <main
       className={
         userId && gmailConnected
-          ? 'flex h-screen min-h-0 flex-col bg-gray-100'
+          ? 'flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden overscroll-none bg-gray-100'
           : 'min-h-screen bg-gradient-to-b from-blue-50 to-white'
       }
     >
@@ -714,32 +796,6 @@ export default function Home() {
           <AppNav
             layout="workspace"
             subtitle={gmailEmail || signedInEmail || 'Gmail connected'}
-            trailing={
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!userId) return
-                    clearInboxNavSession(userId)
-                    void loadGmailMessagesPageAt(userId, null, 0, [null])
-                  }}
-                  disabled={gmailMessagesBusy}
-                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:bg-gray-100"
-                >
-                  {gmailMessagesBusy ? 'Loading…' : 'Refresh'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setComposeError(null)
-                    setComposeOpen(true)
-                  }}
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                >
-                  Compose
-                </button>
-              </>
-            }
           />
 
           {workflowBusy ? (
@@ -755,11 +811,11 @@ export default function Home() {
 
           <div className="flex min-h-0 min-w-0 flex-1">
             <aside className="flex w-full max-w-[22rem] shrink-0 flex-col border-r border-gray-200 bg-white min-h-0">
-              <div className="flex items-center justify-between gap-2 border-b border-gray-200 px-3 py-2">
+              <div className="flex items-center justify-between gap-2 border-b border-gray-200 px-3 py-1.5">
                 <div className="text-xs font-semibold text-gray-700">
                   {`Inbox (${gmailPageIndex * GMAIL_PAGE_SIZE + 1}–${gmailPageIndex * GMAIL_PAGE_SIZE + gmailMessages.length})`}
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-0.5">
                   <button
                     type="button"
                     onClick={() => void handlePrevGmailPage()}
@@ -780,9 +836,26 @@ export default function Home() {
                   >
                     →
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!userId) return
+                      clearInboxNavSession(userId)
+                      void loadGmailMessagesPageAt(userId, null, 0, [null])
+                    }}
+                    disabled={gmailMessagesBusy}
+                    className="ml-0.5 rounded border border-gray-300 px-1.5 py-0.5 text-base leading-none text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label={gmailMessagesBusy ? 'Loading inbox' : 'Refresh inbox'}
+                    title="Refresh inbox"
+                  >
+                    ↻
+                  </button>
                 </div>
               </div>
-              <div ref={gmailInboxListScrollRef} className="min-h-0 flex-1 overflow-y-auto p-2">
+              <div
+                ref={gmailInboxListScrollRef}
+                className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-2"
+              >
                 {gmailMessagesError && (
                   <p className="mb-2 text-sm text-red-600">{gmailMessagesError}</p>
                 )}
@@ -804,7 +877,7 @@ export default function Home() {
                         void loadGmailMessageDetail(userId, m.id)
                       }}
                       className={[
-                        'mb-1 w-full rounded-lg border p-2 text-left transition-colors',
+                        'mb-0.5 w-full rounded-lg border px-2 py-1.5 text-left transition-colors',
                         isSelected
                           ? 'border-blue-500 bg-blue-50'
                           : 'border-transparent hover:bg-gray-50',
@@ -841,44 +914,103 @@ export default function Home() {
                   {workflowError}
                 </p>
               ) : null}
-              <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-gray-100 bg-white px-6 py-3">
+              <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-gray-100 bg-white px-4 py-2">
                 <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                   Reader
                 </span>
-                <div className="flex flex-wrap items-center justify-end gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
                   {savedThreadIdForMessage ? (
                     <Link
                       href={`/results/${encodeURIComponent(savedThreadIdForMessage)}`}
-                      className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
+                      className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-50"
                     >
                       View saved results
                     </Link>
                   ) : null}
                   <button
                     type="button"
+                    disabled={
+                      !selectedGmailMessage || replyBusy || workflowBusy || selectedGmailMessageBusy
+                    }
+                    onClick={() => {
+                      setReplyError(null)
+                      setReplyNotice(null)
+                      setReplyOpen(true)
+                    }}
+                    className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Reply
+                  </button>
+                  <button
+                    type="button"
                     disabled={!selectedGmailMessage || workflowBusy || selectedGmailMessageBusy}
                     onClick={() => void handleRunWorkflow()}
-                    className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+                    className="rounded-md bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:bg-gray-300"
                   >
-                    {workflowBusy ? 'Running workflow…' : 'Run InboxPilot workflow'}
+                    {workflowBusy ? 'Running…' : 'Run workflow'}
                   </button>
                 </div>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 lg:px-12 lg:py-10">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 py-5 lg:px-8 lg:py-6">
+                {replyNotice ? (
+                  <p className="mb-3 text-sm font-medium text-green-700">{replyNotice}</p>
+                ) : null}
                 {selectedGmailMessage && !selectedGmailMessageBusy ? (
                   <>
                     <div className="text-sm text-gray-700">
                       <span className="font-semibold">From:</span> {selectedGmailMessage.from_email}
                     </div>
                     <div className="mt-1 text-xs text-gray-500">{selectedGmailMessage.date}</div>
-                    <h2 className="mt-4 text-2xl font-semibold text-gray-900">
+                    <h2 className="mt-3 text-xl font-semibold text-gray-900">
                       {selectedGmailMessage.subject || '(no subject)'}
                     </h2>
-                    <div className="mt-6 whitespace-pre-wrap break-words text-base leading-relaxed text-gray-800">
+                    <div className="mt-4 whitespace-pre-wrap break-words text-sm leading-relaxed text-gray-800">
                       {selectedGmailMessage.body || (
                         <span className="text-gray-500">No body content.</span>
                       )}
                     </div>
+                    {replyOpen ? (
+                      <form
+                        onSubmit={(e) => void handleSendReply(e)}
+                        className="mt-6 border-t border-gray-100 pt-4"
+                      >
+                        {replyError ? (
+                          <p className="mb-2 text-sm text-red-600">{replyError}</p>
+                        ) : null}
+                        <label htmlFor="reply-body" className="text-xs font-medium text-gray-700">
+                          Your reply (sent via Gmail)
+                        </label>
+                        <textarea
+                          id="reply-body"
+                          value={replyBody}
+                          onChange={(e) => setReplyBody(e.target.value)}
+                          rows={5}
+                          disabled={replyBusy}
+                          className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400"
+                          placeholder="Write your reply…"
+                        />
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button
+                            type="submit"
+                            disabled={replyBusy}
+                            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
+                          >
+                            {replyBusy ? 'Sending…' : 'Send reply'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={replyBusy}
+                            onClick={() => {
+                              setReplyOpen(false)
+                              setReplyError(null)
+                            }}
+                            className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
+                    ) : null}
                   </>
                 ) : !selectedGmailMessageBusy ? (
                   <p className="text-sm text-gray-600">Select a message to read.</p>
@@ -886,6 +1018,20 @@ export default function Home() {
               </div>
             </section>
           </div>
+
+          {!composeOpen ? (
+            <button
+              type="button"
+              onClick={() => {
+                setComposeError(null)
+                setComposeOpen(true)
+              }}
+              className="fixed bottom-4 right-4 z-40 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg ring-1 ring-black/5 hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+              aria-label="Compose new email draft"
+            >
+              ✏️Compose
+            </button>
+          ) : null}
 
           {composeOpen ? (
             <div

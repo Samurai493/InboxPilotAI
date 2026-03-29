@@ -1,6 +1,7 @@
 """Authentication: Google ID tokens and signed guest session tokens."""
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -14,6 +15,8 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models.user import User
+
+logger = logging.getLogger(__name__)
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -29,7 +32,8 @@ def _verify_google_token(token: str) -> dict:
             GoogleRequest(),
             settings.GOOGLE_CLIENT_ID,
         )
-    except Exception:
+    except Exception as exc:
+        logger.warning("Google ID token verification failed: %s", exc)
         raise HTTPException(status_code=401, detail="Invalid Google ID token")
 
 

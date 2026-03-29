@@ -436,6 +436,34 @@ export async function createGmailDraft(
   return response.json()
 }
 
+/** Send a reply in the same Gmail thread as the given message id. */
+export async function sendGmailReply(
+  messageId: string,
+  body: string,
+  userId?: string,
+): Promise<unknown> {
+  const url = new URL(
+    `${getApiBaseUrl()}/api/v1/gmail/messages/${encodeURIComponent(messageId)}/reply`,
+  )
+  if (userId) url.searchParams.set('user_id', userId)
+  const response = await apiFetch(url.toString(), {
+    method: 'POST',
+    headers: {
+      ...authHeaders({ Accept: 'application/json' }),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ body }),
+  })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+    throw new Error(
+      (typeof error.detail === 'string' ? error.detail : error.detail?.[0]?.msg) ||
+        `HTTP error! status: ${response.status}`,
+    )
+  }
+  return response.json()
+}
+
 export async function authenticateWithGoogleIdToken(
   idToken: string,
 ): Promise<AuthUserResponse> {

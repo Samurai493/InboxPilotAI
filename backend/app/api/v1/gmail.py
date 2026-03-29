@@ -49,6 +49,10 @@ class GmailDraftRequest(BaseModel):
     body: str
 
 
+class GmailReplyRequest(BaseModel):
+    body: str
+
+
 class GmailMessagesPageResponse(BaseModel):
     messages: list[GmailMessageResponse]
     next_page_token: str | None = None
@@ -276,6 +280,32 @@ async def create_gmail_draft(
     try:
         svc = GmailService(credentials=creds)
         return svc.create_draft(payload.to, payload.subject, payload.body)
+    except Exception:
+        raise HTTPException(
+            status_code=502,
+            detail="Gmail request failed. Try again later.",
+        )
+
+
+@router.post("/gmail/messages/{message_id}/reply")
+async def send_gmail_reply(
+    message_id: str,
+    payload: GmailReplyRequest,
+    user_id: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Send a plain-text reply in the same Gmail thread as ``message_id``."""
+    resolved = require_user_context(current_user, user_id)
+    creds = _credentials_or_404(db, resolved)
+    text = (payload.body or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Reply body is required")
+    try:
+        svc = GmailService(credentials=creds)
+        return svc.send_reply(message_id, text)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         raise HTTPException(
             status_code=502,

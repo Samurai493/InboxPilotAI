@@ -37,7 +37,7 @@ function NavLinkGroup() {
 export type AppNavProps = {
   /** Shown under the title when using workspace layout */
   subtitle?: string | null
-  /** Refresh / Compose etc. (workspace layout only) */
+  /** Optional actions (workspace layout only) */
   trailing?: React.ReactNode
   /**
    * Workspace: left title column + nav + trailing + sign out (Gmail-connected home).

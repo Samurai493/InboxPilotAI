@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'rea
 import { AppNav } from '@/components/AppNav'
 import {
   type AppSettings,
-  buildBackendEnvFileContent,
   clearAppSettings,
   defaultAppSettings,
   getApiBaseUrl,
@@ -28,7 +27,6 @@ const labelClass = 'text-sm font-medium text-gray-800'
 export default function SettingsPage() {
   const [s, setS] = useState<AppSettings>(defaultAppSettings)
   const [saved, setSaved] = useState(false)
-  const [copyMsg, setCopyMsg] = useState<string | null>(null)
   const [importMsg, setImportMsg] = useState<string | null>(null)
   const [importBusy, setImportBusy] = useState(false)
   const [llmStatus, setLlmStatus] = useState<LlmCredentialsStatus | null>(null)
@@ -93,17 +91,6 @@ export default function SettingsPage() {
   const handleSave = () => {
     saveAppSettings(s)
     setSaved(true)
-    setCopyMsg(null)
-  }
-
-  const handleCopyEnv = async () => {
-    const text = buildBackendEnvFileContent(s)
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopyMsg(text ? 'Copied backend/.env snippet to clipboard.' : 'Nothing to copy — fill backend fields first.')
-    } catch {
-      setCopyMsg('Could not copy. Select and copy manually.')
-    }
   }
 
   const handleClear = () => {
@@ -111,14 +98,12 @@ export default function SettingsPage() {
     clearAppSettings()
     setS(defaultAppSettings())
     setSaved(false)
-    setCopyMsg(null)
     setImportMsg(null)
   }
 
   const handleImportFromEnv = async () => {
     setImportBusy(true)
     setImportMsg(null)
-    setCopyMsg(null)
     try {
       const feRes = await fetch('/api/settings/frontend-env')
       if (!feRes.ok) throw new Error(`Frontend env: HTTP ${feRes.status}`)
@@ -226,21 +211,64 @@ export default function SettingsPage() {
           <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
           <p className="mt-1 text-sm text-gray-600">
             Local configuration for this browser. Use <strong>Import from .env</strong> to pull{' '}
-            <code className="text-xs">NEXT_PUBLIC_*</code> from the frontend build env and (optionally) the running
-            API&apos;s loaded <code className="text-xs">backend/.env</code>.
+            <code className="text-xs">NEXT_PUBLIC_*</code> from the frontend build env and (optionally) merge admin-only
+            values from the API <code className="text-xs">env-template</code> endpoint.
           </p>
         </div>
 
         <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-          LLM provider keys should be saved on the server (encrypted in the database). The workflow loads them per user;
-          optional server environment variables still work as a fallback.
+          Provider API keys are stored on the server (encrypted per user). Provider and model below are saved in this
+          browser when you click <strong>Save settings</strong> at the bottom; each workflow run uses them with the
+          server keys.
         </div>
 
         <section className="mb-10 rounded-lg border border-primary-200 bg-white p-6 shadow-sm">
           <h2 className="text-lg font-semibold text-gray-900">LLM API keys (server, encrypted)</h2>
           <p className="mt-1 text-sm text-gray-600">
-            Sign in (or set <strong>Default user ID</strong> below), then paste keys. They are stored with Fernet
-            encryption. Leave a field empty when saving to leave that provider unchanged; use Clear to remove all three.
+            Sign in (or set <strong>Default user ID</strong> in Frontend below), then choose the LLM provider and model,
+            paste keys, and save. Keys use Fernet encryption on the server. Leave a key field empty when saving to leave
+            that provider unchanged; use Clear stored keys to remove all three.
+          </p>
+          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <label className={labelClass} htmlFor="llmProvider">
+                LLM provider
+              </label>
+              <select
+                id="llmProvider"
+                value={s.llmProvider}
+                onChange={handleLlmProviderChange}
+                className={inputClass}
+              >
+                <option value="openai">openai</option>
+                <option value="anthropic">anthropic (Claude)</option>
+                <option value="google_genai">google_genai (Gemini)</option>
+              </select>
+            </div>
+            <div className="md:col-span-2">
+              <label className={labelClass} htmlFor="llmModel">
+                LLM model (optional override)
+              </label>
+              <select
+                id="llmModel"
+                value={s.llmModel}
+                onChange={handleLlmModelChange}
+                className={inputClass}
+              >
+                {modelOptions.map((opt) => (
+                  <option key={opt.value || '__default__'} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-gray-500">
+                Only models wired in this app&apos;s LangChain setup are listed. Pick a provider first.
+              </p>
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-gray-600">
+            After changing provider or model, click <strong>Save settings</strong> at the bottom so workflow requests
+            use the new values.
           </p>
           {llmStatus ? (
             <p className="mt-2 text-xs text-gray-600">
@@ -375,201 +403,6 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        <section className="mb-10 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900">Backend (paste into backend/.env)</h2>
-          <p className="mt-1 text-sm text-gray-600">
-            Fill these to generate a snippet. Copy and merge into <code className="text-xs">backend/.env</code>, then
-            restart the API.
-          </p>
-          <p className="mt-2 text-sm text-gray-600">
-            <strong>Save settings</strong> after changing provider or model. Each workflow run sends{' '}
-            <code className="text-xs">llm_provider</code> and <code className="text-xs">llm_model</code>; API keys come
-            from the server-stored credentials above or from backend environment variables.
-          </p>
-          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div className="md:col-span-2">
-              <label className={labelClass} htmlFor="llmProvider">
-                LLM_PROVIDER
-              </label>
-              <select
-                id="llmProvider"
-                value={s.llmProvider}
-                onChange={handleLlmProviderChange}
-                className={inputClass}
-              >
-                <option value="openai">openai</option>
-                <option value="anthropic">anthropic (Claude)</option>
-                <option value="google_genai">google_genai (Gemini)</option>
-              </select>
-            </div>
-            <div className="md:col-span-2">
-              <label className={labelClass} htmlFor="llmModel">
-                LLM_MODEL (optional override)
-              </label>
-              <select
-                id="llmModel"
-                value={s.llmModel}
-                onChange={handleLlmModelChange}
-                className={inputClass}
-              >
-                {modelOptions.map((opt) => (
-                  <option key={opt.value || '__default__'} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1 text-xs text-gray-500">
-                Only models supported by this app&apos;s LangChain setup are listed. Choose a provider above first.
-              </p>
-            </div>
-            {s.llmProvider === 'openai' ? (
-              <p className="md:col-span-2 text-sm text-gray-600">
-                <code className="text-xs">OPENAI_MODEL</code> in the copied backend snippet follows the model you select
-                above (when empty, the snippet uses <code className="text-xs">gpt-4o-mini</code> for OpenAI defaults).
-              </p>
-            ) : null}
-            <div>
-              <label className={labelClass} htmlFor="langsmithApiKey">
-                LANGSMITH_API_KEY
-              </label>
-              <input
-                id="langsmithApiKey"
-                type="password"
-                value={s.langsmithApiKey}
-                onChange={(e) => update('langsmithApiKey', e.target.value)}
-                className={inputClass}
-                autoComplete="off"
-              />
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="langsmithProject">
-                LANGSMITH_PROJECT
-              </label>
-              <input
-                id="langsmithProject"
-                type="text"
-                value={s.langsmithProject}
-                onChange={(e) => update('langsmithProject', e.target.value)}
-                className={inputClass}
-              />
-            </div>
-            <div className="flex items-end gap-2 pb-1">
-              <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-gray-800">
-                <input
-                  type="checkbox"
-                  checked={s.langsmithTracing}
-                  onChange={(e) => update('langsmithTracing', e.target.checked)}
-                  className="accent-primary-600"
-                />
-                LANGSMITH_TRACING
-              </label>
-            </div>
-            <div className="md:col-span-2">
-              <label className={labelClass} htmlFor="databaseUrl">
-                DATABASE_URL
-              </label>
-              <input
-                id="databaseUrl"
-                type="text"
-                value={s.databaseUrl}
-                onChange={(e) => update('databaseUrl', e.target.value)}
-                className={inputClass}
-                placeholder="postgresql://user:pass@localhost:5432/inboxpilot"
-                autoComplete="off"
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label className={labelClass} htmlFor="redisUrl">
-                REDIS_URL
-              </label>
-              <input
-                id="redisUrl"
-                type="text"
-                value={s.redisUrl}
-                onChange={(e) => update('redisUrl', e.target.value)}
-                className={inputClass}
-                placeholder="redis://localhost:6379/0"
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label className={labelClass} htmlFor="secretKey">
-                SECRET_KEY
-              </label>
-              <input
-                id="secretKey"
-                type="password"
-                value={s.secretKey}
-                onChange={(e) => update('secretKey', e.target.value)}
-                className={inputClass}
-                autoComplete="off"
-              />
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="googleClientIdBackend">
-                GOOGLE_CLIENT_ID (server)
-              </label>
-              <input
-                id="googleClientIdBackend"
-                type="text"
-                value={s.googleClientIdBackend}
-                onChange={(e) => update('googleClientIdBackend', e.target.value)}
-                className={inputClass}
-              />
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="googleClientSecret">
-                GOOGLE_CLIENT_SECRET
-              </label>
-              <input
-                id="googleClientSecret"
-                type="password"
-                value={s.googleClientSecret}
-                onChange={(e) => update('googleClientSecret', e.target.value)}
-                className={inputClass}
-                autoComplete="off"
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label className={labelClass} htmlFor="googleRedirectUri">
-                GOOGLE_REDIRECT_URI
-              </label>
-              <input
-                id="googleRedirectUri"
-                type="url"
-                value={s.googleRedirectUri}
-                onChange={(e) => update('googleRedirectUri', e.target.value)}
-                className={inputClass}
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label className={labelClass} htmlFor="frontendUrl">
-                FRONTEND_URL
-              </label>
-              <input
-                id="frontendUrl"
-                type="url"
-                value={s.frontendUrl}
-                onChange={(e) => update('frontendUrl', e.target.value)}
-                className={inputClass}
-                placeholder="http://localhost:3002"
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label className={labelClass} htmlFor="corsOrigins">
-                CORS_ORIGINS (comma-separated or JSON array)
-              </label>
-              <input
-                id="corsOrigins"
-                type="text"
-                value={s.corsOrigins}
-                onChange={(e) => update('corsOrigins', e.target.value)}
-                className={inputClass}
-                placeholder="http://localhost:3000,http://localhost:3002"
-              />
-            </div>
-          </div>
-        </section>
-
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
@@ -588,13 +421,6 @@ export default function SettingsPage() {
           </button>
           <button
             type="button"
-            onClick={handleCopyEnv}
-            className="rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-          >
-            Copy backend .env snippet
-          </button>
-          <button
-            type="button"
             onClick={handleClear}
             className="rounded-lg border border-red-200 text-red-700 px-5 py-2.5 text-sm font-semibold hover:bg-red-50"
           >
@@ -605,7 +431,6 @@ export default function SettingsPage() {
           <p className="mt-4 text-sm font-medium text-green-700">Saved. Reload the home page if Google Sign-In was not updating.</p>
         ) : null}
         {importMsg ? <p className="mt-2 text-sm text-gray-700">{importMsg}</p> : null}
-        {copyMsg ? <p className="mt-2 text-sm text-gray-700">{copyMsg}</p> : null}
       </div>
     </main>
     </>

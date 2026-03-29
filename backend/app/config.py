@@ -1,6 +1,7 @@
 """Configuration management for InboxPilot AI."""
 from typing import Optional
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -92,6 +93,21 @@ class Settings(BaseSettings):
     # httpOnly cookies (guest session, Gmail OAuth CSRF binding). Secure=True in production only.
     GUEST_SESSION_COOKIE_NAME: str = "inboxpilot_guest"
     GMAIL_OAUTH_BINDING_COOKIE_NAME: str = "gmail_oauth_binding"
+
+    @field_validator("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", mode="before")
+    @classmethod
+    def strip_optional_oauth_strings(cls, v: object) -> object:
+        if v is None or not isinstance(v, str):
+            return v
+        s = v.strip()
+        return s if s else None
+
+    @field_validator("GOOGLE_REDIRECT_URI", mode="before")
+    @classmethod
+    def strip_redirect_uri(cls, v: object) -> object:
+        if isinstance(v, str):
+            return v.strip()
+        return v
 
 
 settings = Settings()
